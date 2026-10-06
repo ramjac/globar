@@ -190,7 +190,7 @@ func getAmdSmiData(ctx context.Context) (*AmdSmiOutput, error) {
 // GetGpuAndNpuUsage gets both GPU and NPU utilization using amd-smi
 func GetGpuAndNpuUsage() (uint16, uint16, error) {
 	// Create a context with a reasonable timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
 
 	smiOutput, err := getAmdSmiData(ctx)
@@ -241,35 +241,7 @@ func (m *Monitor) GetCPUUsage() (uint16, error) {
 
 // GetGpuAndNpuUsage gets the GPU and NPU utilization using amd-smi
 func (m *Monitor) GetGpuAndNpuUsage() (uint16, uint16, error) {
-	// Create a context with a reasonable timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	// Using the function that accepts context for better timeout handling
-	smiOutput, err := getAmdSmiData(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if len(smiOutput.GpuData) == 0 {
-		return 0, 0, fmt.Errorf("no GPU data found in amd-smi output")
-	}
-
-	// Get GPU usage from gfx_activity
-	gpuUsage := uint16(smiOutput.GpuData[0].Usage.GfxActivity.Value)
-
-	// Get NPU usage from apu_average_ipu_activity
-	// Take the average of all IPU activities reported
-	var sum uint16
-	for _, activity := range smiOutput.GpuData[0].Usage.ApuAverageIpuActivity {
-		sum += uint16(activity.Value)
-	}
-	var npuUsage uint16
-	if len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity) > 0 {
-		npuUsage = sum / uint16(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
-	}
-
-	return gpuUsage, npuUsage, nil
+	return GetGpuAndNpuUsage()
 }
 
 // GetRAMUsage calculates the RAM usage percentage
