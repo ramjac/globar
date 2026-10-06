@@ -21,8 +21,13 @@ Stats Light Bar is a service designed to dynamically update the RGB LED lightbar
 - **Verification**: An AI agent must always validate its changes by attempting to build the project (e.g., `go build .`) and running the unit tests (e.g., `go test ./...`) to ensure no regressions or compilation errors were introduced.
 
 ## Current Status
-- A Go-based CLI tool has been developed for interacting with the sysfs interface of the AMD Halo Box lightbar.
-- The CLI is used for development and debugging the lightbar's response to intensity and brightness changes.
+- **Fully Implemented Service**: A background service is implemented that dynamically maps system resource usage to lightbar colors and brightness.
+- **Resource Monitoring**: The service monitors CPU, GPU, NPU, and RAM usage in real-time.
+- **CLI Tool**: A comprehensive CLI tool is provided for:
+    - Manual control of lightbar RGB and brightness.
+    - Real-time monitoring of system resources and lightbar status (watch mode).
+    - Launching the background service.
+
 
 ## Hardware Interface (Sysfs)
 The lightbar is controlled via the following sysfs paths:

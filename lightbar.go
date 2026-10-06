@@ -93,9 +93,6 @@ func (l *Lightbar) GetStatus() (LightbarStatus, error) {
 
 // SetBrightness sets the lightbar brightness
 func (l *Lightbar) SetBrightness(brightness uint8) error {
-	if brightness < 30 {
-		brightness = 30
-	}
 	data := []byte(fmt.Sprintf("%d", brightness))
 	err := os.WriteFile(l.basePath+brightnessFileName, data, 0644)
 	if err != nil {
@@ -106,11 +103,6 @@ func (l *Lightbar) SetBrightness(brightness uint8) error {
 
 // SetRGB sets the lightbar RGB intensities
 func (l *Lightbar) SetRGB(r, g, b uint8) error {
-	if r+b+g < 30 {
-		r += 10
-		b += 10
-		g += 10
-	}
 	data := []byte(fmt.Sprintf("%d %d %d", r, g, b))
 	err := os.WriteFile(l.basePath+multiIntensityFileName, data, 0644)
 	if err != nil {

@@ -1,8 +1,31 @@
 # Stats Light Bar
 
-This is a fun little service that will update your AMD Halo box light bar color and brightness dynamically based on system resource usage.
+Globar is a service designed to dynamically update the RGB LED lightbar on an AMD Halo Box based on real-time system resource usage.
 
-The CLI in main.go is provided for trying out the classes more manually. Running `go run . -r 20 -g 90 -b 10 -brightness 90` will set the lightbar. Running `go run . -w` will print the current resource usage and lightbar settings.
+### Features
+- **Dynamic Color Mapping**: Maps GPU, CPU, and NPU usage to Red, Green, and Blue intensities respectively.
+- **Dynamic Brightness**: Adjusts brightness based on overall system load (RAM and average CPU/GPU/NPU usage).
+- **Comprehensive CLI**: Provides tools for manual control, real-time monitoring, and service management.
+
+### CLI Usage
+The tool can be used for manual control, monitoring, or as a background service:
+
+- **Manual Control**: Set specific colors and brightness.
+  ```bash
+  go run . -r 20 -g 90 -b 10 -brightness 90
+  ```
+- **Watch Mode**: Monitor system resources and lightbar status in real-time.
+  ```bash
+  go run . -w
+  ```
+- **Service Mode**: Run as a background service that automatically updates the lightbar.
+  ```bash
+  go run . -s
+  ```
+- **Verbose Logging**: Use `-v` with service or watch mode for detailed logs.
+  ```bash
+  go run . -s -v
+  ```
 
 Thanks to the AMD folks for releasing the [light bar driver](https://lore.kernel.org/platform-driver-x86/20260427022546.1407923-1-superm1@kernel.org/).
 Credit to [xdna-top](https://github.com/boxwrench/xdna-top) for figuring out how to monitor resource usage.

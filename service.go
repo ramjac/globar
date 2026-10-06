@@ -69,8 +69,20 @@ func (s *Service) updateLightbar() error {
 	green := uint8(cpu)
 	blue := uint8(npu)
 
+	// giving the lightbar some baseline glow
+	if red+green+blue < 45 {
+		red += 15
+		green += 15
+		blue += 15
+	}
+
 	avgUsage := uint32((cpu + gpu + npu) / 3)
-	brightness := uint8((uint32(ram) + avgUsage) / 2)
+	// + 20 to give the lightbar a little baseline glow
+	brightness := uint8((uint32(ram)+avgUsage)/2) + 20
+
+	if brightness > 100 {
+		brightness = 100
+	}
 
 	err = s.lightbar.SetRGB(red, green, blue)
 	if err != nil {
