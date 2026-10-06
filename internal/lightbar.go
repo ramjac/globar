@@ -1,4 +1,4 @@
-package main
+package internal
 
 import (
 	"fmt"
@@ -93,8 +93,9 @@ func (l *Lightbar) GetStatus() (LightbarStatus, error) {
 
 // SetBrightness sets the lightbar brightness
 func (l *Lightbar) SetBrightness(brightness uint8) error {
-	data := []byte(fmt.Sprintf("%d", brightness))
-	err := os.WriteFile(l.basePath+brightnessFileName, data, 0644)
+	buf := make([]byte, 0)
+	buf = fmt.Appendf(buf, "%d", brightness)
+	err := os.WriteFile(l.basePath+brightnessFileName, buf, 0644)
 	if err != nil {
 		return fmt.Errorf("error setting brightness: %w", err)
 	}
@@ -103,8 +104,9 @@ func (l *Lightbar) SetBrightness(brightness uint8) error {
 
 // SetRGB sets the lightbar RGB intensities
 func (l *Lightbar) SetRGB(r, g, b uint8) error {
-	data := []byte(fmt.Sprintf("%d %d %d", r, g, b))
-	err := os.WriteFile(l.basePath+multiIntensityFileName, data, 0644)
+	buf := make([]byte, 0)
+	buf = fmt.Appendf(buf, "%d %d %d", r, g, b)
+	err := os.WriteFile(l.basePath+multiIntensityFileName, buf, 0644)
 	if err != nil {
 		return fmt.Errorf("error setting RGB: %w", err)
 	}

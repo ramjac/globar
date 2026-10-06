@@ -18,7 +18,7 @@ Stats Light Bar is a service designed to dynamically update the RGB LED lightbar
     - Resource usage reads can be within +/- 10% of actual values.
     - Timing lags of up to 300ms are acceptable.
 - **Data Types**: Lightbar settings (brightness and intensity) must be whole number values in the range 0-100. This is a constraint of the lightbar hardware interface and is independent of the scale or units of the system resources being monitored. To minimize memory footprint and maximize efficiency, use small integer types (e.g., `uint8`) instead of floating-point numbers.
-- **Verification**: An AI agent must always validate its changes by attempting to build the project (e.g., `go build .`) and running the unit tests (e.g., `go test ./...`) to ensure no regressions or compilation errors were introduced.
+- **Verification**: An AI agent must always validate its changes by attempting to build the project (e.g., `go build ./cmd/main.go`) and running the unit tests (e.g., `go test ./...`) to ensure no regressions or compilation errors were introduced.
 
 ## Current Status
 - **Fully Implemented Service**: A background service is implemented that dynamically maps system resource usage to lightbar colors and brightness.

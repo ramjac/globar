@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"globar/internal"
 )
 
 func main() {
@@ -23,10 +25,10 @@ func main() {
 	brightness := flag.Int("brightness", -1, "Set brightness (0-100)")
 	flag.Parse()
 
-	lightbar := NewLightbar("")
+	lightbar := internal.NewLightbar("")
 
 	if *runService {
-		service := NewService(lightbar, NewMonitor(), *verbose)
+		service := internal.NewService(lightbar, internal.NewMonitor(), *verbose)
 		service.Run(ctx)
 		return
 	}
@@ -82,14 +84,14 @@ func main() {
 	}
 
 	printAll := func() {
-		cpu, err := GetCPUUsage()
+		cpu, err := internal.GetCPUUsage()
 		if err != nil {
 			fmt.Printf("Error reading CPU usage: %v\n", err)
 		} else {
 			fmt.Printf("CPU Usage: %d\n", cpu)
 		}
 
-		gpu, npu, err := GetGpuAndNpuUsage()
+		gpu, npu, err := internal.GetGpuAndNpuUsage()
 		if err != nil {
 			fmt.Printf("Error reading GPU or NPU usage: %v\n", err)
 		} else {
