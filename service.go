@@ -43,33 +43,15 @@ func (s *Service) Run(ctx context.Context) {
 	}
 }
 
-func (s *Service) updateHistory(history *[]uint16, val uint16) uint32 {
-	*history = append(*history, val)
-	if len(*history) > 3 {
-		*history = (*history)[1:]
-	}
-
-	var sum uint16
-	for _, v := range *history {
-		sum += uint16(v)
-	}
-	return uint32(sum / uint16(len(*history)))
-}
-
 func (s *Service) updateLightbar() error {
 	cpu, err := s.monitor.GetCPUUsage()
 	if err != nil {
 		return fmt.Errorf("failed to get CPU usage: %w", err)
 	}
 
-	gpu, err := s.monitor.GetGPUUsage()
+	gpu, npu, err := s.monitor.GetGpuAndNpuUsage()
 	if err != nil {
-		return fmt.Errorf("failed to get GPU usage: %w", err)
-	}
-
-	npu, err := s.monitor.GetNPUUsage()
-	if err != nil {
-		return fmt.Errorf("failed to get NPU usage: %w", err)
+		return fmt.Errorf("failed to get GPU/NPU usage: %w", err)
 	}
 
 	ram, err := s.monitor.GetRAMUsage()

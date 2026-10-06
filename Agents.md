@@ -32,4 +32,5 @@ The lightbar is controlled via the following sysfs paths:
 
 ## Future Work
 
-Improve monitor queries for performance and simplicity
+Best Practice Suggestion (Context/Timeouts): The Service.Run function relies on ctx.Done() for graceful shutdown. This is correct. However, if the monitor.GetCPUUsage() or other monitor calls could block indefinitely, the service could hang. If the underlying monitor calls do not respect the context, you might want to wrap them with a timeout mechanism (e.g., using context.WithTimeout) within updateLightbar to prevent the service from stalling.
+

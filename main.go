@@ -89,17 +89,11 @@ func main() {
 			fmt.Printf("CPU Usage: %d\n", cpu)
 		}
 
-		gpu, err := GetGPUUsage()
+		gpu, npu, err := GetGpuAndNpuUsage()
 		if err != nil {
-			fmt.Printf("Error reading GPU usage: %v\n", err)
+			fmt.Printf("Error reading GPU or NPU usage: %v\n", err)
 		} else {
 			fmt.Printf("GPU Usage: %d\n", gpu)
-		}
-
-		npu, err := GetNPUUsage()
-		if err != nil {
-			fmt.Printf("Error reading NPU usage: %v\n", err)
-		} else {
 			fmt.Printf("NPU Usage: %d\n", npu)
 		}
 

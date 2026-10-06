@@ -13,7 +13,12 @@ import (
 // AmdSmiOutput represents the JSON structure from amd-smi metric -u --json
 type AmdSmiOutput struct {
 	GpuData []struct {
+		Gpu   int `json:"gpu"`
 		Usage struct {
+			GfxActivity struct {
+				Value int    `json:"value"`
+				Unit  string `json:"unit"`
+			} `json:"gfx_activity"`
 			ApuAverageIpuActivity []struct {
 				Value int    `json:"value"`
 				Unit  string `json:"unit"`
@@ -165,68 +170,93 @@ func GetCPUUsage() (uint16, error) {
 	return uint16(usage), nil
 }
 
-// GetGPUUsage reads the GPU utilization from sysfs
-// TODO - refactor to get GPU and NPU together since both are returned by amd-smi
-func GetGPUUsage() (uint16, error) {
-	// percent is 0-100
-	const gpuUsagePath = "/sys/class/drm/card0/device/gpu_busy_percent"
-	data, err := os.ReadFile(gpuUsagePath)
-	if err != nil {
-		return 0, fmt.Errorf("error reading GPU usage: %w", err)
-	}
-
-	usage, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil {
-		return 0, fmt.Errorf("error parsing GPU usage: %w", err)
-	}
-
-	return uint16(usage), nil
-}
-
-// GetNPUUsage gets the NPU utilization using amd-smi
-func GetNPUUsage() (uint16, error) {
-	// TODO - use this read to get the GPU and NPU loads
-	// THis command: /opt/rocm/bin/amd-smi metric -u --json
-	// Yields json as follows:
-	/* "gpu_data":
-	   {
-	       "gpu": 0,
-	       "usage": {
-	           "gfx_activity": {
-	               "value": 98,
-	               "unit": "%"
-	           },
-	*/
+// getAmdSmiData reads and parses the amd-smi output
+func getAmdSmiData() (*AmdSmiOutput, error) {
 	cmd := exec.Command("/opt/rocm/bin/amd-smi", "metric", "-u", "--json")
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, fmt.Errorf("error running amd-smi: %w", err)
+		return nil, fmt.Errorf("error running amd-smi: %w", err)
 	}
 
 	var smiOutput AmdSmiOutput
 	if err := json.Unmarshal(output, &smiOutput); err != nil {
-		return 0, fmt.Errorf("error parsing amd-smi output: %w", err)
+		return nil, fmt.Errorf("error parsing amd-smi output: %w", err)
 	}
 
-	if len(smiOutput.GpuData) == 0 || len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity) == 0 {
-		return 0, fmt.Errorf("NPU usage data not found in amd-smi output")
+	return &smiOutput, nil
+}
+
+// GetGpuAndNpuUsage gets both GPU and NPU utilization using amd-smi
+func GetGpuAndNpuUsage() (uint16, uint16, error) {
+	smiOutput, err := getAmdSmiData()
+	if err != nil {
+		return 0, 0, err
 	}
 
+	if len(smiOutput.GpuData) == 0 {
+		return 0, 0, fmt.Errorf("no GPU data found in amd-smi output")
+	}
+
+	// Get GPU usage from gfx_activity
+	gpuUsage := uint16(smiOutput.GpuData[0].Usage.GfxActivity.Value)
+
+	// Get NPU usage from apu_average_ipu_activity
 	// Take the average of all IPU activities reported
 	var sum uint16
 	for _, activity := range smiOutput.GpuData[0].Usage.ApuAverageIpuActivity {
 		sum += uint16(activity.Value)
 	}
-	avgUsage := sum / uint16(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
+	var npuUsage uint16
+	if len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity) > 0 {
+		npuUsage = sum / uint16(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
+	}
 
-	return uint16(avgUsage), nil
+	return gpuUsage, npuUsage, nil
 }
+
+// // GetGPUUsage reads the GPU utilization from sysfs (deprecated)
+// // TODO: Remove this function after verifying the new implementation works
+// func GetGPUUsage() (uint16, error) {
+// 	// percent is 0-100
+// 	const gpuUsagePath = "/sys/class/drm/card0/device/gpu_busy_percent"
+// 	data, err := os.ReadFile(gpuUsagePath)
+// 	if err != nil {
+// 		return 0, fmt.Errorf("error reading GPU usage: %w", err)
+// 	}
+
+// 	usage, err := strconv.Atoi(strings.TrimSpace(string(data)))
+// 	if err != nil {
+// 		return 0, fmt.Errorf("error parsing GPU usage: %w", err)
+// 	}
+
+// 	return uint16(usage), nil
+// }
+
+// // GetNPUUsage gets the NPU utilization using amd-smi
+// func GetNPUUsage() (uint16, error) {
+// 	smiOutput, err := getAmdSmiData()
+// 	if err != nil {
+// 		return 0, err
+// 	}
+
+// 	if len(smiOutput.GpuData) == 0 || len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity) == 0 {
+// 		return 0, fmt.Errorf("NPU usage data not found in amd-smi output")
+// 	}
+
+// 	// Take the average of all IPU activities reported
+// 	var sum uint16
+// 	for _, activity := range smiOutput.GpuData[0].Usage.ApuAverageIpuActivity {
+// 		sum += uint16(activity.Value)
+// 	}
+// 	avgUsage := sum / uint16(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
+
+// 	return uint16(avgUsage), nil
+// }
 
 // MonitorInterface defines the methods available for monitoring system resources
 type MonitorInterface interface {
 	GetCPUUsage() (uint16, error)
-	GetGPUUsage() (uint16, error)
-	GetNPUUsage() (uint16, error)
+	GetGpuAndNpuUsage() (uint16, uint16, error)
 	GetRAMUsage() (uint16, error)
 }
 
@@ -243,17 +273,17 @@ func (m *Monitor) GetCPUUsage() (uint16, error) {
 	return GetCPUUsage()
 }
 
-// GetGPUUsage reads the GPU utilizat16n from sysfs
-func (m *Monitor) GetGPUUsage() (uint16, error) {
-	return GetGPUUsage()
+// GetGpuAndNpuUsage gets the GPU and NPU utilization using amd-smi
+func (m *Monitor) GetGpuAndNpuUsage() (uint16, uint16, error) {
+	// Using the combined function for better efficiency
+	gpuUsage, npuUsage, err := GetGpuAndNpuUsage()
+	if err != nil {
+		return 0, 0, err
+	}
+	return gpuUsage, npuUsage, nil
 }
 
-// GetNPUUsage gets the NPU utilizati16 using amd-smi
-func (m *Monitor) GetNPUUsage() (uint16, error) {
-	return GetNPUUsage()
-}
-
-// GetRAMUsage calculates the RAM usa16 percentage
+// GetRAMUsage calculates the RAM usage percentage
 func (m *Monitor) GetRAMUsage() (uint16, error) {
 	return GetRAMUsage()
 }
