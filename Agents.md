@@ -30,10 +30,6 @@ The lightbar is controlled via the following sysfs paths:
 - Brightness: `brightness`
 - Multi-intensity: `multi_intensity` (format: `R G B`)
 
+## Future Work
 
-
-
-## Development Roadmap
-- [ ] Implement the background service logic.
-- [ ] Integrate resource monitoring with the lightbar control logic.
-- [ ] Develop a way to configure mappings between resource usage and color/brightness.
+Improve monitor queries for performance and simplicity

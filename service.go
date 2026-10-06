@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"time"
@@ -8,50 +9,51 @@ import (
 
 // Service handles the background monitoring and lightbar updates
 type Service struct {
-	lightbar   LightbarInterface
-	monitor    MonitorInterface
-	cpuHistory []uint32
-	gpuHistory []uint32
-	npuHistory []uint32
-	ramHistory []uint32
+	lightbar LightbarInterface
+	monitor  MonitorInterface
+	verbose  bool
 }
 
 // NewService creates a new Service instance
-func NewService(lightbar LightbarInterface, monitor MonitorInterface) *Service {
+func NewService(lightbar LightbarInterface, monitor MonitorInterface, verbose bool) *Service {
 	return &Service{
-		lightbar:   lightbar,
-		monitor:    monitor,
-		cpuHistory: make([]uint32, 0, 3),
-		gpuHistory: make([]uint32, 0, 3),
-		npuHistory: make([]uint32, 0, 3),
-		ramHistory: make([]uint32, 0, 3),
+		lightbar: lightbar,
+		monitor:  monitor,
+		verbose:  verbose,
 	}
 }
 
 // Run starts the background service loop
-func (s *Service) Run() {
-	log.Println("Starting Globar Lightbar Service...")
+func (s *Service) Run(ctx context.Context) {
+	log.Println("Starting Globar Service...")
+
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
 
 	for {
-		if err := s.updateLightbar(); err != nil {
-			log.Printf("Error updating lightbar: %v", err)
+		select {
+		case <-ticker.C:
+			if err := s.updateLightbar(); err != nil {
+				log.Printf("Error updating lightbar: %v", err)
+			}
+		case <-ctx.Done():
+			log.Println("Service stopping gracefully:", ctx.Err())
+			return
 		}
-
-		time.Sleep(1 * time.Second)
 	}
 }
 
-func (s *Service) updateHistory(history *[]uint32, val uint32) uint32 {
+func (s *Service) updateHistory(history *[]uint16, val uint16) uint32 {
 	*history = append(*history, val)
 	if len(*history) > 3 {
 		*history = (*history)[1:]
 	}
 
-	var sum uint64
+	var sum uint16
 	for _, v := range *history {
-		sum += uint64(v)
+		sum += uint16(v)
 	}
-	return uint32(sum / uint64(len(*history)))
+	return uint32(sum / uint16(len(*history)))
 }
 
 func (s *Service) updateLightbar() error {
@@ -81,30 +83,27 @@ func (s *Service) updateLightbar() error {
 	// NPU usage => Blue intensity
 	// Brightness => half based on RAM usage and half based on an average of CPU/NPU/GPU usage.
 
-	avgCpu := s.updateHistory(&s.cpuHistory, cpu)
-	avgGpu := s.updateHistory(&s.gpuHistory, gpu)
-	avgNpu := s.updateHistory(&s.npuHistory, npu)
-	avgRam := s.updateHistory(&s.ramHistory, ram)
+	red := uint8(gpu)
+	green := uint8(cpu)
+	blue := uint8(npu)
 
-	red := uint8(avgGpu)
-	green := uint8(avgCpu)
-	blue := uint8(avgNpu)
-
-	avgUsage := uint32((uint64(avgCpu) + uint64(avgGpu) + uint64(avgNpu)) / 3)
-	brightness := uint32((uint64(avgRam) + uint64(avgUsage)) / 2)
+	avgUsage := uint32((cpu + gpu + npu) / 3)
+	brightness := uint8((uint32(ram) + avgUsage) / 2)
 
 	err = s.lightbar.SetRGB(red, green, blue)
 	if err != nil {
 		return fmt.Errorf("failed to set RGB: %w", err)
 	}
 
-	err = s.lightbar.SetBrightness(uint8(brightness))
+	err = s.lightbar.SetBrightness(brightness)
 	if err != nil {
 		return fmt.Errorf("failed to set brightness: %w", err)
 	}
 
-	log.Printf("Updated Lightbar: Brightness=%d, R=%d, G=%d, B=%d (CPU:%d%%, GPU:%d%%, NPU:%d%%, RAM:%d%%)",
-		brightness, red, green, blue, cpu, gpu, npu, ram)
+	if s.verbose {
+		log.Printf("Updated Lightbar: Brightness=%d, R=%d, G=%d, B=%d (CPU:%d%%, GPU:%d%%, NPU:%d%%, RAM:%d%%)",
+			brightness, red, green, blue, cpu, gpu, npu, ram)
+	}
 
 	return nil
 }

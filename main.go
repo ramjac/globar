@@ -1,14 +1,22 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 func main() {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
 	watch := flag.Bool("w", false, "Watch mode: keep running and updating usage values once per second")
 	runService := flag.Bool("s", false, "Run as a background service")
+	verbose := flag.Bool("v", false, "Enable verbose logging")
 	red := flag.Int("r", -1, "Set Red intensity (0-100)")
 	green := flag.Int("g", -1, "Set Green intensity (0-100)")
 	blue := flag.Int("b", -1, "Set Blue intensity (0-100)")
@@ -18,8 +26,8 @@ func main() {
 	lightbar := NewLightbar("")
 
 	if *runService {
-		service := NewService(lightbar, NewMonitor())
-		service.Run()
+		service := NewService(lightbar, NewMonitor(), *verbose)
+		service.Run(ctx)
 		return
 	}
 
@@ -107,10 +115,18 @@ func main() {
 		printAll()
 	} else {
 		fmt.Println("Starting resource monitoring (watch mode)... Press Ctrl+C to stop.")
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+
 		for {
-			printAll()
-			fmt.Println("---------------------------")
-			time.Sleep(1 * time.Second)
+			select {
+			case <-ticker.C:
+				printAll()
+				fmt.Println("---------------------------")
+			case <-ctx.Done():
+				fmt.Println("Watch mode stopping gracefully:", ctx.Err())
+				return
+			}
 		}
 	}
 }

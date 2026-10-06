@@ -72,7 +72,7 @@ func getMemStats() (memStats, error) {
 }
 
 // GetRAMUsage calculates the RAM usage percentage
-func GetRAMUsage() (uint32, error) {
+func GetRAMUsage() (uint16, error) {
 	stats, err := getMemStats()
 	if err != nil {
 		return 0, err
@@ -85,11 +85,12 @@ func GetRAMUsage() (uint32, error) {
 	used := stats.total - stats.available
 	usage := (used * 100) / stats.total
 
-	return uint32(usage), nil
+	return uint16(usage), nil
 }
 
 // getCPUStats reads /proc/stat and returns idle and total time
 func getCPUStats() (cpuStats, error) {
+	// these are large-ish int values
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
 		return cpuStats{}, err
@@ -125,17 +126,32 @@ func getCPUStats() (cpuStats, error) {
 }
 
 // GetCPUUsage calculates the CPU usage percentage over a short interval
-func GetCPUUsage() (uint32, error) {
+func GetCPUUsage() (uint16, error) {
 	s1, err := getCPUStats()
 	if err != nil {
 		return 0, err
 	}
 
-	time.Sleep(100 * time.Millisecond)
+	// Use a goroutine to avoid blocking the main thread
+	done := make(chan struct{})
+	var s2 cpuStats
+	var err2 error
 
-	s2, err := getCPUStats()
-	if err != nil {
-		return 0, err
+	go func() {
+		defer close(done)
+		// Give the system time to gather new data
+		time.Sleep(100 * time.Millisecond)
+		s2, err2 = getCPUStats()
+	}()
+
+	// Wait for completion with timeout
+	select {
+	case <-done:
+		if err2 != nil {
+			return 0, err2
+		}
+	case <-time.After(150 * time.Millisecond): // Slightly longer timeout
+		return 0, fmt.Errorf("timeout waiting for second CPU stats measurement")
 	}
 
 	totalDiff := s2.total - s1.total
@@ -146,11 +162,13 @@ func GetCPUUsage() (uint32, error) {
 	idleDiff := s2.idle - s1.idle
 	usage := (totalDiff - idleDiff) * 100 / totalDiff
 
-	return uint32(usage), nil
+	return uint16(usage), nil
 }
 
 // GetGPUUsage reads the GPU utilization from sysfs
-func GetGPUUsage() (uint32, error) {
+// TODO - refactor to get GPU and NPU together since both are returned by amd-smi
+func GetGPUUsage() (uint16, error) {
+	// percent is 0-100
 	const gpuUsagePath = "/sys/class/drm/card0/device/gpu_busy_percent"
 	data, err := os.ReadFile(gpuUsagePath)
 	if err != nil {
@@ -162,11 +180,23 @@ func GetGPUUsage() (uint32, error) {
 		return 0, fmt.Errorf("error parsing GPU usage: %w", err)
 	}
 
-	return uint32(usage), nil
+	return uint16(usage), nil
 }
 
 // GetNPUUsage gets the NPU utilization using amd-smi
-func GetNPUUsage() (uint32, error) {
+func GetNPUUsage() (uint16, error) {
+	// TODO - use this read to get the GPU and NPU loads
+	// THis command: /opt/rocm/bin/amd-smi metric -u --json
+	// Yields json as follows:
+	/* "gpu_data":
+	   {
+	       "gpu": 0,
+	       "usage": {
+	           "gfx_activity": {
+	               "value": 98,
+	               "unit": "%"
+	           },
+	*/
 	cmd := exec.Command("/opt/rocm/bin/amd-smi", "metric", "-u", "--json")
 	output, err := cmd.Output()
 	if err != nil {
@@ -183,21 +213,21 @@ func GetNPUUsage() (uint32, error) {
 	}
 
 	// Take the average of all IPU activities reported
-	var sum uint64
+	var sum uint16
 	for _, activity := range smiOutput.GpuData[0].Usage.ApuAverageIpuActivity {
-		sum += uint64(activity.Value)
+		sum += uint16(activity.Value)
 	}
-	avgUsage := sum / uint64(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
+	avgUsage := sum / uint16(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
 
-	return uint32(avgUsage), nil
+	return uint16(avgUsage), nil
 }
 
 // MonitorInterface defines the methods available for monitoring system resources
 type MonitorInterface interface {
-	GetCPUUsage() (uint32, error)
-	GetGPUUsage() (uint32, error)
-	GetNPUUsage() (uint32, error)
-	GetRAMUsage() (uint32, error)
+	GetCPUUsage() (uint16, error)
+	GetGPUUsage() (uint16, error)
+	GetNPUUsage() (uint16, error)
+	GetRAMUsage() (uint16, error)
 }
 
 // Monitor handles interacting with system resource monitoring
@@ -209,21 +239,21 @@ func NewMonitor() *Monitor {
 }
 
 // GetCPUUsage calculates the CPU usage percentage
-func (m *Monitor) GetCPUUsage() (uint32, error) {
+func (m *Monitor) GetCPUUsage() (uint16, error) {
 	return GetCPUUsage()
 }
 
-// GetGPUUsage reads the GPU utilization from sysfs
-func (m *Monitor) GetGPUUsage() (uint32, error) {
+// GetGPUUsage reads the GPU utilizat16n from sysfs
+func (m *Monitor) GetGPUUsage() (uint16, error) {
 	return GetGPUUsage()
 }
 
-// GetNPUUsage gets the NPU utilization using amd-smi
-func (m *Monitor) GetNPUUsage() (uint32, error) {
+// GetNPUUsage gets the NPU utilizati16 using amd-smi
+func (m *Monitor) GetNPUUsage() (uint16, error) {
 	return GetNPUUsage()
 }
 
-// GetRAMUsage calculates the RAM usage percentage
-func (m *Monitor) GetRAMUsage() (uint32, error) {
+// GetRAMUsage calculates the RAM usa16 percentage
+func (m *Monitor) GetRAMUsage() (uint16, error) {
 	return GetRAMUsage()
 }
