@@ -57,6 +57,16 @@ func TestLightbar(t *testing.T) {
 	if string(data) != "40 50 60" {
 		t.Errorf("Expected RGB 40 50 60 in file, got %s", string(data))
 	}
+
+	// Test Lightbar with basePath lacking trailing slash
+	lNoSlash := NewLightbar(tmpDir)
+	statusNoSlash, err := lNoSlash.GetStatus()
+	if err != nil {
+		t.Errorf("GetStatus without trailing slash failed: %v", err)
+	}
+	if statusNoSlash.Brightness != 75 || statusNoSlash.Red != 40 || statusNoSlash.Green != 50 || statusNoSlash.Blue != 60 {
+		t.Errorf("Expected status matching set values, got %+v", statusNoSlash)
+	}
 }
 
 func TestLightbar_Errors(t *testing.T) {

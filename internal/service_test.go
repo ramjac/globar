@@ -44,10 +44,19 @@ func (m *MockMonitor) GetRAMUsage() (uint16, error) {
 }
 
 func TestService_UpdateLightbar_Success(t *testing.T) {
+	var gotBrightness uint8
+	var gotR, gotG, gotB uint8
+
 	mockLightbar := &MockLightbar{
-		GetStatusFn:     func() (LightbarStatus, error) { return LightbarStatus{}, nil },
-		SetBrightnessFn: func(brightness uint8) error { return nil },
-		SetRGBFn:        func(r, g, b uint8) error { return nil },
+		GetStatusFn: func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+		SetBrightnessFn: func(brightness uint8) error {
+			gotBrightness = brightness
+			return nil
+		},
+		SetRGBFn: func(r, g, b uint8) error {
+			gotR, gotG, gotB = r, g, b
+			return nil
+		},
 	}
 	mockMonitor := &MockMonitor{
 		GetCPUUsageFn:       func() (uint16, error) { return 20, nil },
@@ -58,7 +67,89 @@ func TestService_UpdateLightbar_Success(t *testing.T) {
 	service := NewService(mockLightbar, mockMonitor, false)
 	err := service.updateLightbar()
 	if err != nil {
-		t.Errorf("Expected no error, got %v", err)
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// gpu=40 -> red=40, cpu=20 -> green=20, npu=50 -> blue=50 (sum=110 >= 45)
+	if gotR != 40 || gotG != 20 || gotB != 50 {
+		t.Errorf("Expected RGB (40, 20, 50), got (%d, %d, %d)", gotR, gotG, gotB)
+	}
+	// avgUsage = (20+40+50)/3 = 36; brightness = (50+36)/2 + 20 = 43 + 20 = 63
+	if gotBrightness != 63 {
+		t.Errorf("Expected brightness 63, got %d", gotBrightness)
+	}
+}
+
+func TestService_UpdateLightbar_BaselineGlow(t *testing.T) {
+	var gotBrightness uint8
+	var gotR, gotG, gotB uint8
+
+	mockLightbar := &MockLightbar{
+		GetStatusFn: func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+		SetBrightnessFn: func(brightness uint8) error {
+			gotBrightness = brightness
+			return nil
+		},
+		SetRGBFn: func(r, g, b uint8) error {
+			gotR, gotG, gotB = r, g, b
+			return nil
+		},
+	}
+	mockMonitor := &MockMonitor{
+		GetCPUUsageFn:       func() (uint16, error) { return 0, nil },
+		GetGpuAndNpuUsageFn: func() (uint16, uint16, error) { return 0, 0, nil },
+		GetRAMUsageFn:       func() (uint16, error) { return 0, nil },
+	}
+
+	service := NewService(mockLightbar, mockMonitor, false)
+	err := service.updateLightbar()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// sum = 0 < 45, each channel gets +15
+	if gotR != 15 || gotG != 15 || gotB != 15 {
+		t.Errorf("Expected baseline glow RGB (15, 15, 15), got (%d, %d, %d)", gotR, gotG, gotB)
+	}
+	// avgUsage = 0; brightness = 0/2 + 20 = 20
+	if gotBrightness != 20 {
+		t.Errorf("Expected baseline brightness 20, got %d", gotBrightness)
+	}
+}
+
+func TestService_UpdateLightbar_Clamping(t *testing.T) {
+	var gotBrightness uint8
+	var gotR, gotG, gotB uint8
+
+	mockLightbar := &MockLightbar{
+		GetStatusFn: func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+		SetBrightnessFn: func(brightness uint8) error {
+			gotBrightness = brightness
+			return nil
+		},
+		SetRGBFn: func(r, g, b uint8) error {
+			gotR, gotG, gotB = r, g, b
+			return nil
+		},
+	}
+	mockMonitor := &MockMonitor{
+		GetCPUUsageFn:       func() (uint16, error) { return 120, nil },
+		GetGpuAndNpuUsageFn: func() (uint16, uint16, error) { return 150, 200, nil },
+		GetRAMUsageFn:       func() (uint16, error) { return 110, nil },
+	}
+
+	service := NewService(mockLightbar, mockMonitor, false)
+	err := service.updateLightbar()
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
+	}
+
+	// Metrics > 100 must be clamped to 100
+	if gotR != 100 || gotG != 100 || gotB != 100 {
+		t.Errorf("Expected clamped RGB (100, 100, 100), got (%d, %d, %d)", gotR, gotG, gotB)
+	}
+	if gotBrightness != 100 {
+		t.Errorf("Expected clamped brightness 100, got %d", gotBrightness)
 	}
 }
 

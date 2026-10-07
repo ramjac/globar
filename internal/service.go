@@ -65,6 +65,20 @@ func (s *Service) updateLightbar() error {
 	// NPU usage => Blue intensity
 	// Brightness => half based on RAM usage and half based on an average of CPU/NPU/GPU usage.
 
+	// Clamp resource metrics to maximum 100%
+	if gpu > 100 {
+		gpu = 100
+	}
+	if cpu > 100 {
+		cpu = 100
+	}
+	if npu > 100 {
+		npu = 100
+	}
+	if ram > 100 {
+		ram = 100
+	}
+
 	red := uint8(gpu)
 	green := uint8(cpu)
 	blue := uint8(npu)
@@ -74,6 +88,17 @@ func (s *Service) updateLightbar() error {
 		red += 15
 		green += 15
 		blue += 15
+	}
+
+	// Strictly clamp RGB values to 0-100 hardware range
+	if red > 100 {
+		red = 100
+	}
+	if green > 100 {
+		green = 100
+	}
+	if blue > 100 {
+		blue = 100
 	}
 
 	avgUsage := uint32((cpu + gpu + npu) / 3)
