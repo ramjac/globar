@@ -13,19 +13,22 @@ import (
 
 // AmdSmiOutput represents the JSON structure from amd-smi metric -u --json
 type AmdSmiOutput struct {
-	GpuData []struct {
-		Gpu   int `json:"gpu"`
-		Usage struct {
-			GfxActivity struct {
-				Value int    `json:"value"`
-				Unit  string `json:"unit"`
-			} `json:"gfx_activity"`
-			ApuAverageIpuActivity []struct {
-				Value int    `json:"value"`
-				Unit  string `json:"unit"`
-			} `json:"apu_average_ipu_activity"`
-		} `json:"usage"`
-	} `json:"gpu_data"`
+	GpuData []GpuData `json:"gpu_data"`
+}
+
+type GpuData struct {
+	Gpu   int      `json:"gpu"`
+	Usage GpuUsage `json:"usage"`
+}
+
+type GpuUsage struct {
+	GfxActivity           MetricValue   `json:"gfx_activity"`
+	ApuAverageIpuActivity []MetricValue `json:"apu_average_ipu_activity"`
+}
+
+type MetricValue struct {
+	Value int    `json:"value"`
+	Unit  string `json:"unit"`
 }
 
 // cpuStats stores the values from /proc/stat
@@ -172,7 +175,7 @@ func GetCPUUsage() (uint16, error) {
 }
 
 // getAmdSmiData reads and parses the amd-smi output
-func getAmdSmiData(ctx context.Context) (*AmdSmiOutput, error) {
+var getAmdSmiData = func(ctx context.Context) (*AmdSmiOutput, error) {
 	cmd := exec.CommandContext(ctx, "/opt/rocm/bin/amd-smi", "metric", "-u", "--json")
 	output, err := cmd.Output()
 	if err != nil {

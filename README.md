@@ -78,8 +78,8 @@ For persistent operation as a service on Debian 13, create and enable a systemd 
     [Service]
     User=<your_username> # IMPORTANT: Replace <your_username> with the actual username running the service.
     Group=halo-lp       # Ensure this group exists and user is a member.
-    WorkingDirectory=/home/ramjac/globar # Adjust if not in /home/ramjac/globar
-    ExecStart=/path/to/your/globar # Use the absolute path to the compiled binary, e.g., /opt/globar
+    WorkingDirectory=/home/<your_username>/globar
+    ExecStart=/usr/local/bin/globar -s
     Restart=always
 
     [Install]
@@ -93,7 +93,7 @@ For persistent operation as a service on Debian 13, create and enable a systemd 
     sudo systemctl start globar.service
     ```
 
-    Checkt the status `sudo systemctl status globar`
+    Checkt the status `systemctl status globar.service`
 
 ### Notes on Development Box Constraints:
 
