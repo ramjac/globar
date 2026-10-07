@@ -1,101 +1,130 @@
-# Stats Light Bar
+# Globar
 
-Globar is a service designed to dynamically update the RGB LED lightbar on an AMD Halo Box based on real-time system resource usage.
+Globar is a lightweight service and CLI tool designed to dynamically update the RGB LED lightbar on an AMD Halo Developer Box (Debian 13 / AMD Ryzen 395+) based on real-time system resource usage.
 
 ### Features
-- **Dynamic Color Mapping**: Maps GPU, CPU, and NPU usage to Red, Green, and Blue intensities respectively.
-- **Dynamic Brightness**: Adjusts brightness based on overall system load (RAM and average CPU/GPU/NPU usage).
-- **Comprehensive CLI**: Provides tools for manual control, real-time monitoring, and service management.
+- **Dynamic Color Mapping**:
+  - **Red**: Intensity driven by GPU usage.
+  - **Green**: Intensity driven by CPU usage.
+  - **Blue**: Intensity driven by NPU usage.
+- **Dynamic Brightness**: Automatically adjusts brightness based on overall system load (RAM and average CPU/GPU/NPU usage).
+- **Comprehensive CLI**: Provides manual control, live status monitoring (watch mode), and headless background service operation.
+- **Hardware Integration**: Directly controls the lightbar via Linux sysfs (`/sys/class/leds/amd_halo:multicolor:status/`) and gathers NPU telemetry via ROCm `amd-smi`.
 
-### CLI Usage
-The tool can be used for manual control, monitoring, or as a background service:
+---
 
-- **Manual Control**: Set specific colors and brightness.
+## Prerequisites & Permissions
+
+1. **Hardware & OS**: Designed for the AMD Ryzen Halo Linux Developer Box running linux.
+2. **Permissions**: Controlling the lightbar requires the user running the tool to belong to the `halo-lp` group:
+   ```bash
+   sudo usermod -aG halo-lp $USER
+   ```
+   *Log out and log back in (or reboot) for group membership to take effect.*
+3. **NPU Telemetry**: Ensure `amd-smi` is available at `/opt/rocm/bin/amd-smi` for NPU monitoring.
+
+---
+
+## Installation
+
+### Option 1: Download Pre-built Binary (Recommended)
+
+Pre-built statically linked binaries are provided on the [Releases](https://github.com/ramjac/globar/releases) page. No Go installation is required.
+
+```bash
+# Download the latest Linux x86_64 binary
+curl -LO https://github.com/ramjac/globar/releases/latest/download/globar-linux-amd64
+
+# Make executable and move to PATH
+chmod +x globar-linux-amd64
+sudo mv globar-linux-amd64 /usr/local/bin/globar
+```
+
+### Option 2: Build from Source
+
+If you prefer to compile from source (requires Go 1.27.1 or later):
+
+```bash
+# Clone the repository
+git clone https://github.com/ramjac/globar.git
+cd globar
+
+# Build the executable
+go build -o globar ./cmd/main.go
+
+# (Optional) Run unit tests
+go test ./...
+
+# Move to PATH
+sudo mv globar /usr/local/bin/
+```
+
+---
+
+## CLI Usage
+
+Run `globar` with the desired mode or options:
+
+- **Manual Control**: Set specific color intensities and brightness directly:
   ```bash
-  go run . -r 20 -g 90 -b 10 -brightness 90
+  globar -r 20 -g 90 -b 10 -brightness 90
   ```
-- **Watch Mode**: Monitor system resources and lightbar status in real-time.
+- **Watch Mode (`-w`)**: Monitor system resources and lightbar status in real-time in your terminal:
   ```bash
-  go run . -w
+  globar -w
   ```
-- **Service Mode**: Run as a background service that automatically updates the lightbar.
+- **Service Mode (`-s`)**: Run as an automated service that continuously maps system load to the lightbar:
   ```bash
-  go run . -s
+  globar -s
   ```
-- **Verbose Logging**: Use `-v` with service or watch mode for detailed logs.
+- **Verbose Logging (`-v`)**: Enable detailed logs with service or watch mode:
   ```bash
-  go run . -s -v
+  globar -s -v
   ```
 
-Thanks to the AMD folks for releasing the [light bar driver](https://lore.kernel.org/platform-driver-x86/20260427022546.1407923-1-superm1@kernel.org/).
-Credit to [xdna-top](https://github.com/boxwrench/xdna-top) for figuring out how to monitor resource usage.
+---
 
 ## Running as a Background Service
 
-To run the lightbar service in the background on your AMD Halo dev box:
+### Systemd Service (Recommended)
 
-1. **Clone the repository:**
+For persistent operation on your AMD Halo box across reboots:
+
+1. **Create the systemd unit file** at `/etc/systemd/system/globar.service`:
+
+   ```ini
+   [Unit]
+   Description=Globar Light Bar Service
+   After=network.target
+
+   [Service]
+   User=<your_username>
+   Group=halo-lp
+   ExecStart=/usr/local/bin/globar -s
+   Restart=always
+   RestartSec=5
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+   > **Note**: Replace `<your_username>` with your actual username. Ensure the user belongs to the `halo-lp` group.
+
+2. **Reload systemd, enable, and start the service:**
+
    ```bash
-   git clone <repository-url>
-   cd globar
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now globar.service
    ```
 
-2. **Install Go:**
-   Ensure you have Go installed (version 1.27.1 or later is recommended).
+3. **Check service status and logs:**
 
-3. **Ensure dependencies are met:**
-   The service relies on `amd-smi` being available at `/opt/rocm/bin/amd-smi` for NPU monitoring.
-
-4. **Run the service in the background:**
-   You can use `nohup` or a systemd service to keep it running:
    ```bash
-   nohup go run . -s > globar.log 2>&1 &
+   systemctl status globar.service
+   journalctl -u globar.service -f
    ```
-   Alternatively, for a more permanent setup, create a systemd unit file.
 
-## Permissions
+---
 
-In order for setting the light to work, you'll need to add the user running this application to the "halo-lp" group and reboot: `sudo usermod -aG halo-lp <username>`
-
-## Build
-
-To compile the application into an executable binary for this developer box environment:
-```bash
-go build -o globar .
-```
-
-## System Service (systemd) for AMD Halo Linux Development Box
-
-For persistent operation as a service on Debian 13, create and enable a systemd unit file. **Ensure the user running this service belongs to the `halo-lp` group.**
-
-1.  **Create the service file:** Save the following content as `/etc/systemd/system/globar.service`:
-
-    ```ini
-    [Unit]
-    Description=Globar Light Bar Service
-    After=network.target
-
-    [Service]
-    User=<your_username> # IMPORTANT: Replace <your_username> with the actual username running the service.
-    Group=halo-lp       # Ensure this group exists and user is a member.
-    WorkingDirectory=/home/<your_username>/globar
-    ExecStart=/usr/local/bin/globar -s
-    Restart=always
-
-    [Install]
-    WantedBy=multi-user.target
-    ```
-
-2.  **Reload systemd and enable service:** After building the executable (e.g., `go build -o globar .`) and placing it in a suitable location (e.g., `/opt/globar`), run:
-    ```bash
-    sudo systemctl daemon-reload
-    sudo systemctl enable globar.service
-    sudo systemctl start globar.service
-    ```
-
-    Checkt the status `systemctl status globar.service`
-
-### Notes on Development Box Constraints:
-
-*   **OS:** This guide is tailored for Debian 13 (AMD Ryzen Halo Linux Developer Box). Adjust paths and service names as necessary for other environments.
-*   **Permissions:** The `halo-lp` group must be present, and the user running the service must be a member of this group to control the LED lightbar.
+## Acknowledgments
+- Thanks to AMD for releasing the [light bar driver](https://lore.kernel.org/platform-driver-x86/20260427022546.1407923-1-superm1@kernel.org/).
+- Credit to [xdna-top](https://github.com/boxwrench/xdna-top) for figuring out how to monitor resource usage.
