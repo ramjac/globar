@@ -76,9 +76,9 @@ func TestService_UpdateLightbar_Success(t *testing.T) {
 	if gotR != 40 || gotG != 20 || gotB != 50 {
 		t.Errorf("Expected RGB (40, 20, 50), got (%d, %d, %d)", gotR, gotG, gotB)
 	}
-	// avgUsage = (20+40+50)/3 = 36; brightness = (50+36)/2 + 20 = 43 + 20 = 63
-	if gotBrightness != 63 {
-		t.Errorf("Expected brightness 63, got %d", gotBrightness)
+	// avgUsage = (20+40+50)/3 = 36; load = (50+36)/2 = 43; brightness = 20 + (43*80)/100 = 20 + 34 = 54
+	if gotBrightness != 54 {
+		t.Errorf("Expected brightness 54, got %d", gotBrightness)
 	}
 }
 
@@ -109,9 +109,9 @@ func TestService_UpdateLightbar_BaselineGlow(t *testing.T) {
 		t.Fatalf("Expected no error, got %v", err)
 	}
 
-	// sum = 0 < 45, each channel gets +15
-	if gotR != 15 || gotG != 15 || gotB != 15 {
-		t.Errorf("Expected baseline glow RGB (15, 15, 15), got (%d, %d, %d)", gotR, gotG, gotB)
+	// sum = 0 < 30, each channel gets +10
+	if gotR != 10 || gotG != 10 || gotB != 10 {
+		t.Errorf("Expected baseline glow RGB (10, 10, 10), got (%d, %d, %d)", gotR, gotG, gotB)
 	}
 	// avgUsage = 0; brightness = 0/2 + 20 = 20
 	if gotBrightness != 20 {
@@ -152,6 +152,50 @@ func TestService_UpdateLightbar_Clamping(t *testing.T) {
 	}
 	if gotBrightness != 100 {
 		t.Errorf("Expected clamped brightness 100, got %d", gotBrightness)
+	}
+}
+
+func TestService_UpdateLightbar_BrightnessScaling(t *testing.T) {
+	testCases := []struct {
+		name           string
+		cpu            uint16
+		gpu            uint16
+		npu            uint16
+		ram            uint16
+		wantBrightness uint8
+	}{
+		{"0% load -> baseline 20", 0, 0, 0, 0, 20},
+		{"25% load -> 40", 25, 25, 25, 25, 40},
+		{"50% load -> 60", 50, 50, 50, 50, 60},
+		{"75% load -> 80", 75, 75, 75, 75, 80},
+		{"100% load -> 100", 100, 100, 100, 100, 100},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotBrightness uint8
+			mockLightbar := &MockLightbar{
+				GetStatusFn: func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+				SetBrightnessFn: func(brightness uint8) error {
+					gotBrightness = brightness
+					return nil
+				},
+				SetRGBFn: func(r, g, b uint8) error { return nil },
+			}
+			mockMonitor := &MockMonitor{
+				GetCPUUsageFn:       func() (uint16, error) { return tc.cpu, nil },
+				GetGpuAndNpuUsageFn: func() (uint16, uint16, error) { return tc.gpu, tc.npu, nil },
+				GetRAMUsageFn:       func() (uint16, error) { return tc.ram, nil },
+			}
+
+			svc := NewService(mockLightbar, mockMonitor, false)
+			if err := svc.updateLightbar(); err != nil {
+				t.Fatalf("updateLightbar failed: %v", err)
+			}
+			if gotBrightness != tc.wantBrightness {
+				t.Errorf("For %s, expected brightness %d, got %d", tc.name, tc.wantBrightness, gotBrightness)
+			}
+		})
 	}
 }
 
@@ -282,7 +326,7 @@ func TestService_UpdateLightbar_GpuTelemetryDegradation(t *testing.T) {
 	// Update when GPU/NPU telemetry is failing
 	// CPU=60, RAM=40, GPU/NPU fallback to 0
 	// sum = 0 + 60 + 0 = 60 >= 45 (no baseline addition) -> R=0, G=60, B=0
-	// avgUsage = (60 + 0 + 0)/3 = 20 -> brightness = (40 + 20)/2 + 20 = 50
+	// avgUsage = (60 + 0 + 0)/3 = 20 -> load = (40 + 20)/2 = 30 -> brightness = 20 + (30*80)/100 = 44
 	err := service.updateLightbar()
 	if err != nil {
 		t.Fatalf("Expected updateLightbar to succeed despite telemetry failure, got: %v", err)
@@ -290,8 +334,8 @@ func TestService_UpdateLightbar_GpuTelemetryDegradation(t *testing.T) {
 	if gotG != 60 || gotR != 0 || gotB != 0 {
 		t.Errorf("Expected RGB (0, 60, 0) during telemetry degradation, got (%d, %d, %d)", gotR, gotG, gotB)
 	}
-	if gotBrightness != 50 {
-		t.Errorf("Expected brightness 50 during telemetry degradation, got %d", gotBrightness)
+	if gotBrightness != 44 {
+		t.Errorf("Expected brightness 44 during telemetry degradation, got %d", gotBrightness)
 	}
 
 	// Now recover telemetry
@@ -334,5 +378,21 @@ func TestService_Run_ContextCancel(t *testing.T) {
 		// Succeeded in stopping gracefully
 	case <-time.After(1 * time.Second):
 		t.Fatal("Service.Run did not terminate upon context cancellation")
+	}
+}
+
+func TestService_SetInterval(t *testing.T) {
+	service := NewService(&MockLightbar{}, &MockMonitor{}, false)
+
+	// Valid positive interval
+	service.SetInterval(250 * time.Millisecond)
+	if service.interval != 250*time.Millisecond {
+		t.Errorf("Expected interval 250ms, got %v", service.interval)
+	}
+
+	// Non-positive interval should be ignored
+	service.SetInterval(-1 * time.Second)
+	if service.interval != 250*time.Millisecond {
+		t.Errorf("Expected interval to remain 250ms when negative interval is passed, got %v", service.interval)
 	}
 }

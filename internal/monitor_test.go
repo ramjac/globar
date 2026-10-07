@@ -31,10 +31,6 @@ func TestGetCPUUsage(t *testing.T) {
 }
 
 func TestGetGpuAndNpuUsage(t *testing.T) {
-	// Save original getAmdSmiData to restore it later
-	originalGetAmdSmiData := getAmdSmiData
-	defer func() { getAmdSmiData = originalGetAmdSmiData }()
-
 	tests := []struct {
 		name       string
 		mockOutput *AmdSmiOutput
@@ -86,11 +82,11 @@ func TestGetGpuAndNpuUsage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			getAmdSmiData = func(ctx context.Context) (*AmdSmiOutput, error) {
+			m := NewMonitorWithRunner(func(ctx context.Context) (*AmdSmiOutput, error) {
 				return tt.mockOutput, tt.mockErr
-			}
+			})
 
-			gpu, npu, err := GetGpuAndNpuUsage()
+			gpu, npu, err := m.GetGpuAndNpuUsage()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("GetGpuAndNpuUsage() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -102,6 +98,41 @@ func TestGetGpuAndNpuUsage(t *testing.T) {
 				t.Errorf("GetGpuAndNpuUsage() npu = %v, want %v", npu, tt.wantNpu)
 			}
 		})
+	}
+}
+
+func TestParseAmdSmiOutput_EdgeCases(t *testing.T) {
+	// Nil output
+	if _, _, err := parseAmdSmiOutput(nil); err == nil {
+		t.Error("Expected error for nil output, got nil")
+	}
+
+	// Empty GPU data
+	if _, _, err := parseAmdSmiOutput(&AmdSmiOutput{GpuData: nil}); err == nil {
+		t.Error("Expected error for empty GpuData, got nil")
+	}
+
+	// Values out of 0-100 range clamped, empty IPU activity defaults to 0
+	out := &AmdSmiOutput{
+		GpuData: []GpuData{
+			{
+				Gpu: 0,
+				Usage: GpuUsage{
+					GfxActivity:           MetricValue{Value: 150, Unit: "%"},
+					ApuAverageIpuActivity: nil,
+				},
+			},
+		},
+	}
+	gpu, npu, err := parseAmdSmiOutput(out)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if gpu != 100 {
+		t.Errorf("Expected clamped GPU usage 100, got %d", gpu)
+	}
+	if npu != 0 {
+		t.Errorf("Expected NPU usage 0 for empty activity, got %d", npu)
 	}
 }
 
@@ -217,5 +248,34 @@ func TestFindAmdSmiPath(t *testing.T) {
 	path := findAmdSmiPath()
 	if path == "" {
 		t.Error("Expected non-empty path from findAmdSmiPath()")
+	}
+}
+
+func TestMonitor_SetAmdSmiRunner(t *testing.T) {
+	m := NewMonitor()
+	called := false
+	m.SetAmdSmiRunner(func(ctx context.Context) (*AmdSmiOutput, error) {
+		called = true
+		return &AmdSmiOutput{
+			GpuData: []GpuData{
+				{
+					Gpu: 0,
+					Usage: GpuUsage{
+						GfxActivity: MetricValue{Value: 42, Unit: "%"},
+					},
+				},
+			},
+		}, nil
+	})
+
+	gpu, npu, err := m.GetGpuAndNpuUsage()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !called {
+		t.Error("expected custom runner to be invoked")
+	}
+	if gpu != 42 || npu != 0 {
+		t.Errorf("got gpu=%d npu=%d, want gpu=42 npu=0", gpu, npu)
 	}
 }

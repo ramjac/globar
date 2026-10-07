@@ -219,8 +219,11 @@ func findAmdSmiPath() string {
 	return defaultPath
 }
 
-// getAmdSmiData reads and parses the amd-smi output
-var getAmdSmiData = func(ctx context.Context) (*AmdSmiOutput, error) {
+// AmdSmiRunner defines the function signature for querying amd-smi data
+type AmdSmiRunner func(ctx context.Context) (*AmdSmiOutput, error)
+
+// defaultAmdSmiRunner executes the amd-smi CLI command and parses JSON output
+func defaultAmdSmiRunner(ctx context.Context) (*AmdSmiOutput, error) {
 	binPath := findAmdSmiPath()
 	cmd := exec.CommandContext(ctx, binPath, "metric", "-u", "--json")
 	output, err := cmd.Output()
@@ -236,36 +239,53 @@ var getAmdSmiData = func(ctx context.Context) (*AmdSmiOutput, error) {
 	return &smiOutput, nil
 }
 
-// GetGpuAndNpuUsage gets both GPU and NPU utilization using amd-smi
-func GetGpuAndNpuUsage() (uint16, uint16, error) {
-	// Create a context with a reasonable timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	smiOutput, err := getAmdSmiData(ctx)
-	if err != nil {
-		return 0, 0, err
-	}
-
-	if len(smiOutput.GpuData) == 0 {
+// parseAmdSmiOutput extracts GPU and average NPU utilization from AmdSmiOutput
+func parseAmdSmiOutput(smiOutput *AmdSmiOutput) (uint16, uint16, error) {
+	if smiOutput == nil || len(smiOutput.GpuData) == 0 {
 		return 0, 0, fmt.Errorf("no GPU data found in amd-smi output")
 	}
 
 	// Get GPU usage from gfx_activity
-	gpuUsage := uint16(smiOutput.GpuData[0].Usage.GfxActivity.Value)
+	gpuVal := smiOutput.GpuData[0].Usage.GfxActivity.Value
+	if gpuVal < 0 {
+		gpuVal = 0
+	}
+	if gpuVal > 100 {
+		gpuVal = 100
+	}
+	gpuUsage := uint16(gpuVal)
 
 	// Get NPU usage from apu_average_ipu_activity
-	// Take the average of all IPU activities reported
 	var sum uint16
 	for _, activity := range smiOutput.GpuData[0].Usage.ApuAverageIpuActivity {
-		sum += uint16(activity.Value)
+		val := activity.Value
+		if val < 0 {
+			val = 0
+		}
+		if val > 100 {
+			val = 100
+		}
+		sum += uint16(val)
 	}
 	var npuUsage uint16
-	if len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity) > 0 {
-		npuUsage = sum / uint16(len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity))
+	if count := len(smiOutput.GpuData[0].Usage.ApuAverageIpuActivity); count > 0 {
+		npuUsage = sum / uint16(count)
 	}
 
 	return gpuUsage, npuUsage, nil
+}
+
+// GetGpuAndNpuUsage gets both GPU and NPU utilization using amd-smi
+func GetGpuAndNpuUsage() (uint16, uint16, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	smiOutput, err := defaultAmdSmiRunner(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return parseAmdSmiOutput(smiOutput)
 }
 
 // MonitorInterface defines the methods available for monitoring system resources
@@ -277,19 +297,36 @@ type MonitorInterface interface {
 
 // Monitor handles interacting with system resource monitoring
 type Monitor struct {
-	mu         sync.Mutex
-	lastCPU    cpuStats
-	hasLastCPU bool
+	mu           sync.Mutex
+	lastCPU      cpuStats
+	hasLastCPU   bool
+	amdSmiRunner AmdSmiRunner
 }
 
 // NewMonitor creates a new Monitor instance and captures baseline CPU stats
 func NewMonitor() *Monitor {
-	m := &Monitor{}
+	m := &Monitor{
+		amdSmiRunner: defaultAmdSmiRunner,
+	}
 	if stats, err := getCPUStats(); err == nil {
 		m.lastCPU = stats
 		m.hasLastCPU = true
 	}
 	return m
+}
+
+// NewMonitorWithRunner creates a new Monitor instance with an injected AmdSmiRunner
+func NewMonitorWithRunner(runner AmdSmiRunner) *Monitor {
+	m := NewMonitor()
+	m.amdSmiRunner = runner
+	return m
+}
+
+// SetAmdSmiRunner injects a custom AmdSmiRunner for thread-safe testing
+func (m *Monitor) SetAmdSmiRunner(runner AmdSmiRunner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.amdSmiRunner = runner
 }
 
 // GetCPUUsage calculates the CPU usage percentage since the previous tick without sleeping
@@ -323,7 +360,23 @@ func (m *Monitor) GetCPUUsage() (uint16, error) {
 
 // GetGpuAndNpuUsage gets the GPU and NPU utilization using amd-smi
 func (m *Monitor) GetGpuAndNpuUsage() (uint16, uint16, error) {
-	return GetGpuAndNpuUsage()
+	m.mu.Lock()
+	runner := m.amdSmiRunner
+	m.mu.Unlock()
+
+	if runner == nil {
+		runner = defaultAmdSmiRunner
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	smiOutput, err := runner(ctx)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return parseAmdSmiOutput(smiOutput)
 }
 
 // GetRAMUsage calculates the RAM usage percentage

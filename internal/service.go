@@ -129,10 +129,10 @@ func (s *Service) updateLightbar() error {
 	blue := uint8(npu)
 
 	// giving the lightbar some baseline glow
-	if red+green+blue < 45 {
-		red += 15
-		green += 15
-		blue += 15
+	if red+green+blue < 30 {
+		red += 10
+		green += 10
+		blue += 10
 	}
 
 	// Strictly clamp RGB values to 0-100 hardware range
@@ -147,8 +147,12 @@ func (s *Service) updateLightbar() error {
 	}
 
 	avgUsage := uint32((cpu + gpu + npu) / 3)
-	// + 20 to give the lightbar a little baseline glow
-	brightness := uint8((uint32(ram)+avgUsage)/2) + 20
+	load := (uint32(ram) + avgUsage) / 2
+	if load > 100 {
+		load = 100
+	}
+	// Scale system load (0-100%) linearly across usable brightness range (baseline 20 to max 100)
+	brightness := uint8(20 + (load*80)/100)
 
 	if brightness > 100 {
 		brightness = 100
