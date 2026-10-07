@@ -2,6 +2,8 @@
 
 Globar is a lightweight service and CLI tool designed to dynamically update the RGB LED lightbar on an AMD Halo Developer Box (Debian 13 / AMD Ryzen 395+) based on real-time system resource usage.
 
+Version 1.0.0 was developed heavily with the help of AI running on the Halo dev box itself!
+
 ### Features
 - **Dynamic Color Mapping**:
   - **Red**: Intensity driven by GPU usage.
