@@ -1,0 +1,16 @@
+[Unit]
+Description=Globar Light Bar Service
+Documentation=https://github.com/ramjac/globar
+After=network.target
+
+[Service]
+# Replace <your_username> with your user account. Ensure the user belongs to the halo-lp group:
+# sudo usermod -aG halo-lp $USER
+User=<your_username>
+Group=halo-lp
+ExecStart=/usr/local/bin/globar -s
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

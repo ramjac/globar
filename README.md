@@ -40,6 +40,17 @@ chmod +x globar-linux-amd64
 sudo mv globar-linux-amd64 /usr/local/bin/globar
 ```
 
+#### Common Issues
+
+If you get a permission issue, it's likely that globar isn't executable or that your user is not in the "halo-lp" group needed to change the lightbar settings.
+
+Try making globar executable in the bin folder: `sudo chmod +x /usr/local/bin/globar`
+
+Then add yourself to the `halo-lp` group: `sudo usermod -aG halo-lp $USER`
+
+Then check that globar is executable and owned by you: `ls -l /usr/local/bin/globar`
+
+
 ### Option 2: Build from Source
 
 If you prefer to compile from source (requires Go 1.27.1 or later):
