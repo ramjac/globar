@@ -12,6 +12,7 @@ type Service struct {
 	lightbar         LightbarInterface
 	monitor          MonitorInterface
 	verbose          bool
+	interval         time.Duration
 	hasLastApplied   bool
 	lastBrightness   uint8
 	lastRed          uint8
@@ -31,11 +32,22 @@ func NewService(lightbar LightbarInterface, monitor MonitorInterface, verbose bo
 	}
 }
 
+// SetInterval sets the update loop frequency
+func (s *Service) SetInterval(d time.Duration) {
+	if d > 0 {
+		s.interval = d
+	}
+}
+
 // Run starts the background service loop
 func (s *Service) Run(ctx context.Context) {
 	log.Println("Starting Globar Service...")
 
-	ticker := time.NewTicker(1 * time.Second)
+	interval := s.interval
+	if interval <= 0 {
+		interval = 1 * time.Second
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

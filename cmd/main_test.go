@@ -170,3 +170,48 @@ func TestRun_HelpFlag(t *testing.T) {
 		t.Errorf("Expected exit code 0 for help flag, got %d", code)
 	}
 }
+
+func TestRun_Version(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{"-version"}, &stdout, &stderr, &mockLightbar{})
+	if code != 0 {
+		t.Fatalf("Expected exit code 0 for -version, got %d", code)
+	}
+	if !strings.Contains(stdout.String(), "globar version") {
+		t.Errorf("Expected version in stdout, got: %s", stdout.String())
+	}
+}
+
+func TestRun_Interval(t *testing.T) {
+	t.Run("invalid negative interval", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-interval", "-1s"}, &stdout, &stderr, &mockLightbar{})
+		if code != 1 {
+			t.Errorf("Expected exit code 1 for negative interval, got %d", code)
+		}
+		if !strings.Contains(stderr.String(), "interval must be a positive duration") {
+			t.Errorf("Expected error message in stderr, got: %s", stderr.String())
+		}
+	})
+
+	t.Run("invalid zero interval", func(t *testing.T) {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), []string{"-interval", "0s"}, &stdout, &stderr, &mockLightbar{})
+		if code != 1 {
+			t.Errorf("Expected exit code 1 for zero interval, got %d", code)
+		}
+	})
+}
+
+func TestRun_SingleShot_PrintsRAM(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	lb := &mockLightbar{brightness: 50, red: 10, green: 20, blue: 30}
+	code := run(context.Background(), []string{}, &stdout, &stderr, lb)
+	if code != 0 {
+		t.Fatalf("Expected exit code 0, got %d", code)
+	}
+	// Verify RAM Usage is included in single-shot output
+	if !strings.Contains(stdout.String(), "RAM Usage:") && !strings.Contains(stderr.String(), "Error reading RAM usage:") {
+		t.Errorf("Expected RAM Usage in stdout (or error in stderr), got stdout: %s", stdout.String())
+	}
+}

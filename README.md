@@ -69,7 +69,7 @@ Run `globar` with the desired mode or options:
   ```bash
   globar -r 20 -g 90 -b 10 -brightness 90
   ```
-- **Watch Mode (`-w`)**: Monitor system resources and lightbar status in real-time in your terminal:
+- **Watch Mode (`-w`)**: Monitor system resources (CPU, GPU, NPU, RAM) and lightbar status in real-time in your terminal:
   ```bash
   globar -w
   ```
@@ -77,9 +77,17 @@ Run `globar` with the desired mode or options:
   ```bash
   globar -s
   ```
+- **Configurable Refresh Interval (`-interval`)**: Set custom update frequency for watch or service mode (default `1s`):
+  ```bash
+  globar -w -interval 500ms
+  ```
 - **Verbose Logging (`-v`)**: Enable detailed logs with service or watch mode:
   ```bash
   globar -s -v
+  ```
+- **Version (`-version`)**: Check binary version:
+  ```bash
+  globar -version
   ```
 
 ---
@@ -90,11 +98,22 @@ Run `globar` with the desired mode or options:
 
 For persistent operation on your AMD Halo box across reboots:
 
-1. **Create the systemd unit file** at `/etc/systemd/system/globar.service`:
+1. **Install the systemd unit file** using the tracked `globar.service` template from this repository:
+
+   ```bash
+   # Copy the unit file from repository to systemd directory
+   sudo cp globar.service /etc/systemd/system/
+
+   # Edit User to your username (must belong to halo-lp group)
+   sudo sed -i "s/<your_username>/$USER/" /etc/systemd/system/globar.service
+   ```
+
+   The unit file contents:
 
    ```ini
    [Unit]
    Description=Globar Light Bar Service
+   Documentation=https://github.com/ramjac/globar
    After=network.target
 
    [Service]
@@ -107,7 +126,7 @@ For persistent operation on your AMD Halo box across reboots:
    [Install]
    WantedBy=multi-user.target
    ```
-   > **Note**: Replace `<your_username>` with your actual username. Ensure the user belongs to the `halo-lp` group.
+   > **Note**: Ensure the user belongs to the `halo-lp` group (`sudo usermod -aG halo-lp $USER`).
 
 2. **Reload systemd, enable, and start the service:**
 

@@ -13,6 +13,9 @@ import (
 	"globar/internal"
 )
 
+// Version of globar (can be set during build with -ldflags "-X main.Version=...")
+var Version = "1.0.0"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -26,9 +29,11 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 	fs := flag.NewFlagSet("globar", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 
-	watch := fs.Bool("w", false, "Watch mode: keep running and updating usage values once per second")
+	watch := fs.Bool("w", false, "Watch mode: keep running and updating usage values periodically")
 	runService := fs.Bool("s", false, "Run as a background service")
 	verbose := fs.Bool("v", false, "Enable verbose logging")
+	version := fs.Bool("version", false, "Print version information and exit")
+	interval := fs.Duration("interval", 1*time.Second, "Update interval for watch and service modes (e.g. 1s, 500ms)")
 	red := fs.Int("r", -1, "Set Red intensity (0-100)")
 	green := fs.Int("g", -1, "Set Green intensity (0-100)")
 	blue := fs.Int("b", -1, "Set Blue intensity (0-100)")
@@ -41,6 +46,16 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 		return 1
 	}
 
+	if *version {
+		fmt.Fprintf(stdout, "globar version %s\n", Version)
+		return 0
+	}
+
+	if *interval <= 0 {
+		fmt.Fprintln(stderr, "Error: interval must be a positive duration (e.g. 1s, 500ms)")
+		return 1
+	}
+
 	if lightbar == nil {
 		lightbar = internal.NewLightbar("")
 	}
@@ -49,6 +64,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 
 	if *runService {
 		service := internal.NewService(lightbar, monitor, *verbose)
+		service.SetInterval(*interval)
 		service.Run(ctx)
 		return 0
 	}
@@ -130,6 +146,13 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 			fmt.Fprintf(stdout, "NPU Usage: %d\n", npu)
 		}
 
+		ram, err := monitor.GetRAMUsage()
+		if err != nil {
+			fmt.Fprintf(stderr, "Error reading RAM usage: %v\n", err)
+		} else {
+			fmt.Fprintf(stdout, "RAM Usage: %d\n", ram)
+		}
+
 		status, err := lightbar.GetStatus()
 		if err != nil {
 			fmt.Fprintf(stderr, "Error reading lightbar status: %v\n", err)
@@ -144,7 +167,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 	}
 
 	fmt.Fprintln(stdout, "Starting resource monitoring (watch mode)... Press Ctrl+C to stop.")
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(*interval)
 	defer ticker.Stop()
 
 	for {

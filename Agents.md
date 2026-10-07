@@ -58,7 +58,11 @@ The lightbar is controlled via the following sysfs paths:
 - **Configurable Interval & Versioning**: Add `-interval` (defaulting to 1s) and `-version` flags to the CLI.
 - **Systemd Unit Template**: Provide a tracked `globar.service` unit file template in the repository for easier installation.
 
-### 5. Testing & Test Coverage
+### 5. Improve Resource Use to Light Output Mapping
+- **Currently**: Changes in resource usage or system load have no impact on the lightbar settting if they are below the hardcoded baseline brightness and RGB values.
+- **Future State**: Update the mapping of resource usage to that it uses only the usable portion of the lightbar settings values. For example, if the baseline brightness is 20 and the maximum brightness is 100, then the system load percent should map to a range of 20 to 100.
+
+### 6. Testing & Test Coverage
 - **Value Assertion**: Verify exact RGB and brightness outputs in `internal/service_test.go` rather than only checking error returns.
 - **Edge Case Tests**: Add test coverage for baseline glow logic, clamping limits, and graceful context cancellation in `Service.Run(ctx)`.
 - **Direct Monitor Coverage**: Add unit tests exercising `Monitor` methods directly.
