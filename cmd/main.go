@@ -45,8 +45,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 		lightbar = internal.NewLightbar("")
 	}
 
+	monitor := internal.NewMonitor()
+
 	if *runService {
-		service := internal.NewService(lightbar, internal.NewMonitor(), *verbose)
+		service := internal.NewService(lightbar, monitor, *verbose)
 		service.Run(ctx)
 		return 0
 	}
@@ -113,14 +115,14 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar 
 	}
 
 	printAll := func() {
-		cpu, err := internal.GetCPUUsage()
+		cpu, err := monitor.GetCPUUsage()
 		if err != nil {
 			fmt.Fprintf(stderr, "Error reading CPU usage: %v\n", err)
 		} else {
 			fmt.Fprintf(stdout, "CPU Usage: %d\n", cpu)
 		}
 
-		gpu, npu, err := internal.GetGpuAndNpuUsage()
+		gpu, npu, err := monitor.GetGpuAndNpuUsage()
 		if err != nil {
 			fmt.Fprintf(stderr, "Error reading GPU or NPU usage: %v\n", err)
 		} else {

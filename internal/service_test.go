@@ -188,3 +188,62 @@ func TestService_UpdateLightbar_LightbarError(t *testing.T) {
 		t.Error("Expected error from lightbar, got nil")
 	}
 }
+
+func TestService_UpdateLightbar_ConditionalWrites(t *testing.T) {
+	rgbWriteCount := 0
+	brightnessWriteCount := 0
+
+	mockLightbar := &MockLightbar{
+		GetStatusFn: func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+		SetBrightnessFn: func(brightness uint8) error {
+			brightnessWriteCount++
+			return nil
+		},
+		SetRGBFn: func(r, g, b uint8) error {
+			rgbWriteCount++
+			return nil
+		},
+	}
+
+	cpuVal := uint16(20)
+	gpuVal := uint16(40)
+	npuVal := uint16(50)
+	ramVal := uint16(50)
+
+	mockMonitor := &MockMonitor{
+		GetCPUUsageFn:       func() (uint16, error) { return cpuVal, nil },
+		GetGpuAndNpuUsageFn: func() (uint16, uint16, error) { return gpuVal, npuVal, nil },
+		GetRAMUsageFn:       func() (uint16, error) { return ramVal, nil },
+	}
+
+	service := NewService(mockLightbar, mockMonitor, false)
+
+	// First update: should write to both
+	if err := service.updateLightbar(); err != nil {
+		t.Fatalf("First update failed: %v", err)
+	}
+	if rgbWriteCount != 1 || brightnessWriteCount != 1 {
+		t.Fatalf("Expected 1 RGB write and 1 brightness write, got rgb=%d brightness=%d", rgbWriteCount, brightnessWriteCount)
+	}
+
+	// Second update with identical metrics: should NOT write to sysfs
+	if err := service.updateLightbar(); err != nil {
+		t.Fatalf("Second update failed: %v", err)
+	}
+	if rgbWriteCount != 1 || brightnessWriteCount != 1 {
+		t.Errorf("Expected writes to be skipped on unchanged values, got rgb=%d brightness=%d", rgbWriteCount, brightnessWriteCount)
+	}
+
+	// Third update: only GPU changes -> should write RGB, but skip brightness if brightness didn't change
+	// avgUsage = (20 + 41 + 50)/3 = 37 -> brightness = (50+37)/2 + 20 = 43 + 20 = 63 (unchanged!)
+	gpuVal = 41
+	if err := service.updateLightbar(); err != nil {
+		t.Fatalf("Third update failed: %v", err)
+	}
+	if rgbWriteCount != 2 {
+		t.Errorf("Expected RGB write count 2 after GPU changed, got %d", rgbWriteCount)
+	}
+	if brightnessWriteCount != 1 {
+		t.Errorf("Expected brightness write to be skipped when brightness is unchanged, got %d", brightnessWriteCount)
+	}
+}

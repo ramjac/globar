@@ -9,9 +9,14 @@ import (
 
 // Service handles the background monitoring and lightbar updates
 type Service struct {
-	lightbar LightbarInterface
-	monitor  MonitorInterface
-	verbose  bool
+	lightbar       LightbarInterface
+	monitor        MonitorInterface
+	verbose        bool
+	hasLastApplied bool
+	lastBrightness uint8
+	lastRed        uint8
+	lastGreen      uint8
+	lastBlue       uint8
 }
 
 // NewService creates a new Service instance
@@ -109,15 +114,29 @@ func (s *Service) updateLightbar() error {
 		brightness = 100
 	}
 
-	err = s.lightbar.SetRGB(red, green, blue)
-	if err != nil {
-		return fmt.Errorf("failed to set RGB: %w", err)
+	// Only write to sysfs if values have changed or on initial run
+	rgbChanged := !s.hasLastApplied || red != s.lastRed || green != s.lastGreen || blue != s.lastBlue
+	brightnessChanged := !s.hasLastApplied || brightness != s.lastBrightness
+
+	if rgbChanged {
+		err = s.lightbar.SetRGB(red, green, blue)
+		if err != nil {
+			return fmt.Errorf("failed to set RGB: %w", err)
+		}
+		s.lastRed = red
+		s.lastGreen = green
+		s.lastBlue = blue
 	}
 
-	err = s.lightbar.SetBrightness(brightness)
-	if err != nil {
-		return fmt.Errorf("failed to set brightness: %w", err)
+	if brightnessChanged {
+		err = s.lightbar.SetBrightness(brightness)
+		if err != nil {
+			return fmt.Errorf("failed to set brightness: %w", err)
+		}
+		s.lastBrightness = brightness
 	}
+
+	s.hasLastApplied = true
 
 	if s.verbose {
 		log.Printf("Updated Lightbar: Brightness=%d, R=%d, G=%d, B=%d (CPU:%d%%, GPU:%d%%, NPU:%d%%, RAM:%d%%)",
