@@ -14,7 +14,7 @@ import (
 )
 
 // Version of globar (can be set during build with -ldflags "-X main.Version=...")
-var Version = "1.0.0"
+var Version = "1.1.0"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
