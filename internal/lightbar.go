@@ -3,6 +3,7 @@ package internal
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -51,7 +52,7 @@ func (l *Lightbar) GetStatus() (LightbarStatus, error) {
 	status := LightbarStatus{}
 
 	// Read brightness
-	brightnessData, err := os.ReadFile(l.basePath + brightnessFileName)
+	brightnessData, err := os.ReadFile(filepath.Join(l.basePath, brightnessFileName))
 	if err != nil {
 		return status, fmt.Errorf("error reading brightness: %w", err)
 	}
@@ -62,7 +63,7 @@ func (l *Lightbar) GetStatus() (LightbarStatus, error) {
 	status.Brightness = uint8(brightnessVal)
 
 	// Read multi_intensity
-	intensityData, err := os.ReadFile(l.basePath + multiIntensityFileName)
+	intensityData, err := os.ReadFile(filepath.Join(l.basePath, multiIntensityFileName))
 	if err != nil {
 		return status, fmt.Errorf("error reading multi_intensity: %w", err)
 	}
@@ -95,7 +96,7 @@ func (l *Lightbar) GetStatus() (LightbarStatus, error) {
 func (l *Lightbar) SetBrightness(brightness uint8) error {
 	buf := make([]byte, 0)
 	buf = fmt.Appendf(buf, "%d", brightness)
-	err := os.WriteFile(l.basePath+brightnessFileName, buf, 0644)
+	err := os.WriteFile(filepath.Join(l.basePath, brightnessFileName), buf, 0644)
 	if err != nil {
 		return fmt.Errorf("error setting brightness: %w", err)
 	}
@@ -106,7 +107,7 @@ func (l *Lightbar) SetBrightness(brightness uint8) error {
 func (l *Lightbar) SetRGB(r, g, b uint8) error {
 	buf := make([]byte, 0)
 	buf = fmt.Appendf(buf, "%d %d %d", r, g, b)
-	err := os.WriteFile(l.basePath+multiIntensityFileName, buf, 0644)
+	err := os.WriteFile(filepath.Join(l.basePath, multiIntensityFileName), buf, 0644)
 	if err != nil {
 		return fmt.Errorf("error setting RGB: %w", err)
 	}

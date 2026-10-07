@@ -9,9 +9,18 @@ import (
 
 // Service handles the background monitoring and lightbar updates
 type Service struct {
-	lightbar LightbarInterface
-	monitor  MonitorInterface
-	verbose  bool
+	lightbar         LightbarInterface
+	monitor          MonitorInterface
+	verbose          bool
+	interval         time.Duration
+	hasLastApplied   bool
+	lastBrightness   uint8
+	lastRed          uint8
+	lastGreen        uint8
+	lastBlue         uint8
+	lastUpdateErr    string
+	errRepeatCount   int
+	lastTelemetryErr string
 }
 
 // NewService creates a new Service instance
@@ -23,18 +32,45 @@ func NewService(lightbar LightbarInterface, monitor MonitorInterface, verbose bo
 	}
 }
 
+// SetInterval sets the update loop frequency
+func (s *Service) SetInterval(d time.Duration) {
+	if d > 0 {
+		s.interval = d
+	}
+}
+
 // Run starts the background service loop
 func (s *Service) Run(ctx context.Context) {
 	log.Println("Starting Globar Service...")
 
-	ticker := time.NewTicker(1 * time.Second)
+	interval := s.interval
+	if interval <= 0 {
+		interval = 1 * time.Second
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			if err := s.updateLightbar(); err != nil {
-				log.Printf("Error updating lightbar: %v", err)
+				errStr := err.Error()
+				if errStr != s.lastUpdateErr {
+					log.Printf("Error updating lightbar: %v", err)
+					s.lastUpdateErr = errStr
+					s.errRepeatCount = 1
+				} else {
+					s.errRepeatCount++
+					if s.errRepeatCount%60 == 0 {
+						log.Printf("Error updating lightbar (repeated %d times): %v", s.errRepeatCount, err)
+					}
+				}
+			} else {
+				if s.lastUpdateErr != "" {
+					log.Printf("Lightbar update recovered after %d consecutive errors", s.errRepeatCount)
+					s.lastUpdateErr = ""
+					s.errRepeatCount = 0
+				}
 			}
 		case <-ctx.Done():
 			log.Println("Service stopping gracefully:", ctx.Err())
@@ -51,7 +87,16 @@ func (s *Service) updateLightbar() error {
 
 	gpu, npu, err := s.monitor.GetGpuAndNpuUsage()
 	if err != nil {
-		return fmt.Errorf("failed to get GPU/NPU usage: %w", err)
+		errStr := err.Error()
+		if errStr != s.lastTelemetryErr {
+			log.Printf("Warning: GPU/NPU telemetry unavailable (%v); continuing with CPU/RAM metrics", err)
+			s.lastTelemetryErr = errStr
+		}
+		gpu = 0
+		npu = 0
+	} else if s.lastTelemetryErr != "" {
+		log.Println("GPU/NPU telemetry restored")
+		s.lastTelemetryErr = ""
 	}
 
 	ram, err := s.monitor.GetRAMUsage()
@@ -65,34 +110,77 @@ func (s *Service) updateLightbar() error {
 	// NPU usage => Blue intensity
 	// Brightness => half based on RAM usage and half based on an average of CPU/NPU/GPU usage.
 
+	// Clamp resource metrics to maximum 100%
+	if gpu > 100 {
+		gpu = 100
+	}
+	if cpu > 100 {
+		cpu = 100
+	}
+	if npu > 100 {
+		npu = 100
+	}
+	if ram > 100 {
+		ram = 100
+	}
+
 	red := uint8(gpu)
 	green := uint8(cpu)
 	blue := uint8(npu)
 
 	// giving the lightbar some baseline glow
-	if red+green+blue < 45 {
-		red += 15
-		green += 15
-		blue += 15
+	if red+green+blue < 30 {
+		red += 10
+		green += 10
+		blue += 10
+	}
+
+	// Strictly clamp RGB values to 0-100 hardware range
+	if red > 100 {
+		red = 100
+	}
+	if green > 100 {
+		green = 100
+	}
+	if blue > 100 {
+		blue = 100
 	}
 
 	avgUsage := uint32((cpu + gpu + npu) / 3)
-	// + 20 to give the lightbar a little baseline glow
-	brightness := uint8((uint32(ram)+avgUsage)/2) + 20
+	load := (uint32(ram) + avgUsage) / 2
+	if load > 100 {
+		load = 100
+	}
+	// Scale system load (0-100%) linearly across usable brightness range (baseline 20 to max 100)
+	brightness := uint8(20 + (load*80)/100)
 
 	if brightness > 100 {
 		brightness = 100
 	}
 
-	err = s.lightbar.SetRGB(red, green, blue)
-	if err != nil {
-		return fmt.Errorf("failed to set RGB: %w", err)
+	// Only write to sysfs if values have changed or on initial run
+	rgbChanged := !s.hasLastApplied || red != s.lastRed || green != s.lastGreen || blue != s.lastBlue
+	brightnessChanged := !s.hasLastApplied || brightness != s.lastBrightness
+
+	if rgbChanged {
+		err = s.lightbar.SetRGB(red, green, blue)
+		if err != nil {
+			return fmt.Errorf("failed to set RGB: %w", err)
+		}
+		s.lastRed = red
+		s.lastGreen = green
+		s.lastBlue = blue
 	}
 
-	err = s.lightbar.SetBrightness(brightness)
-	if err != nil {
-		return fmt.Errorf("failed to set brightness: %w", err)
+	if brightnessChanged {
+		err = s.lightbar.SetBrightness(brightness)
+		if err != nil {
+			return fmt.Errorf("failed to set brightness: %w", err)
+		}
+		s.lastBrightness = brightness
 	}
+
+	s.hasLastApplied = true
 
 	if s.verbose {
 		log.Printf("Updated Lightbar: Brightness=%d, R=%d, G=%d, B=%d (CPU:%d%%, GPU:%d%%, NPU:%d%%, RAM:%d%%)",

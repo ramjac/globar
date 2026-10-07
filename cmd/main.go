@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
@@ -12,43 +13,94 @@ import (
 	"globar/internal"
 )
 
+// Version of globar (can be set during build with -ldflags "-X main.Version=...")
+var Version = "1.1.0"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	watch := flag.Bool("w", false, "Watch mode: keep running and updating usage values once per second")
-	runService := flag.Bool("s", false, "Run as a background service")
-	verbose := flag.Bool("v", false, "Enable verbose logging")
-	red := flag.Int("r", -1, "Set Red intensity (0-100)")
-	green := flag.Int("g", -1, "Set Green intensity (0-100)")
-	blue := flag.Int("b", -1, "Set Blue intensity (0-100)")
-	brightness := flag.Int("brightness", -1, "Set brightness (0-100)")
-	flag.Parse()
+	if code := run(ctx, os.Args[1:], os.Stdout, os.Stderr, nil); code != 0 {
+		os.Exit(code)
+	}
+}
 
-	lightbar := internal.NewLightbar("")
+func run(ctx context.Context, args []string, stdout, stderr io.Writer, lightbar internal.LightbarInterface) int {
+	fs := flag.NewFlagSet("globar", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	watch := fs.Bool("w", false, "Watch mode: keep running and updating usage values periodically")
+	runService := fs.Bool("s", false, "Run as a background service")
+	verbose := fs.Bool("v", false, "Enable verbose logging")
+	version := fs.Bool("version", false, "Print version information and exit")
+	interval := fs.Duration("interval", 1*time.Second, "Update interval for watch and service modes (e.g. 1s, 500ms)")
+	red := fs.Int("r", -1, "Set Red intensity (0-100)")
+	green := fs.Int("g", -1, "Set Green intensity (0-100)")
+	blue := fs.Int("b", -1, "Set Blue intensity (0-100)")
+	brightness := fs.Int("brightness", -1, "Set brightness (0-100)")
+
+	if err := fs.Parse(args); err != nil {
+		if err == flag.ErrHelp {
+			return 0
+		}
+		return 1
+	}
+
+	if *version {
+		fmt.Fprintf(stdout, "globar version %s\n", Version)
+		return 0
+	}
+
+	if *interval <= 0 {
+		fmt.Fprintln(stderr, "Error: interval must be a positive duration (e.g. 1s, 500ms)")
+		return 1
+	}
+
+	if lightbar == nil {
+		lightbar = internal.NewLightbar("")
+	}
+
+	monitor := internal.NewMonitor()
 
 	if *runService {
-		service := internal.NewService(lightbar, internal.NewMonitor(), *verbose)
+		service := internal.NewService(lightbar, monitor, *verbose)
+		service.SetInterval(*interval)
 		service.Run(ctx)
-		return
+		return 0
 	}
 
 	// Handle manual setting if flags are provided
 	if *red != -1 || *green != -1 || *blue != -1 || *brightness != -1 {
 		if *brightness != -1 {
 			if *brightness < 0 || *brightness > 100 {
-				fmt.Println("Error: brightness must be between 0 and 100")
-				return
+				fmt.Fprintln(stderr, "Error: brightness must be between 0 and 100")
+				return 1
 			}
 			err := lightbar.SetBrightness(uint8(*brightness))
 			if err != nil {
-				fmt.Printf("Error setting brightness: %v\n", err)
-				return
+				fmt.Fprintf(stderr, "Error setting brightness: %v\n", err)
+				return 1
 			}
 		}
 
 		if *red != -1 || *green != -1 || *blue != -1 {
+			if (*red != -1 && (*red < 0 || *red > 100)) ||
+				(*green != -1 && (*green < 0 || *green > 100)) ||
+				(*blue != -1 && (*blue < 0 || *blue > 100)) {
+				fmt.Fprintln(stderr, "Error: RGB values must be between 0 and 100")
+				return 1
+			}
+
 			r, g, b := 0, 0, 0
+			// Preserve existing channels when only a subset is provided
+			if *red == -1 || *green == -1 || *blue == -1 {
+				if status, err := lightbar.GetStatus(); err == nil {
+					r = int(status.Red)
+					g = int(status.Green)
+					b = int(status.Blue)
+				}
+			}
+
 			if *red != -1 {
 				r = *red
 			}
@@ -59,70 +111,73 @@ func main() {
 				b = *blue
 			}
 
-			if r < 0 || r > 100 || g < 0 || g > 100 || b < 0 || b > 100 {
-				fmt.Println("Error: RGB values must be between 0 and 100")
-				return
-			}
-
 			err := lightbar.SetRGB(uint8(r), uint8(g), uint8(b))
 			if err != nil {
-				fmt.Printf("Error setting RGB: %v\n", err)
-				return
+				fmt.Fprintf(stderr, "Error setting RGB: %v\n", err)
+				return 1
 			}
 		}
 
-		// If we just set something and aren't in watch mode, we can exit after printing status
+		// If we just set something and aren't in watch mode, exit after printing status
 		if !*watch {
 			status, err := lightbar.GetStatus()
 			if err != nil {
-				fmt.Printf("Error reading lightbar status: %v\n", err)
-			} else {
-				fmt.Printf("Lightbar Status: Brightness=%d, R=%d, G=%d, B=%d\n", status.Brightness, status.Red, status.Green, status.Blue)
+				fmt.Fprintf(stderr, "Error reading lightbar status: %v\n", err)
+				return 1
 			}
-			return
+			fmt.Fprintf(stdout, "Lightbar Status: Brightness=%d, R=%d, G=%d, B=%d\n", status.Brightness, status.Red, status.Green, status.Blue)
+			return 0
 		}
 	}
 
 	printAll := func() {
-		cpu, err := internal.GetCPUUsage()
+		cpu, err := monitor.GetCPUUsage()
 		if err != nil {
-			fmt.Printf("Error reading CPU usage: %v\n", err)
+			fmt.Fprintf(stderr, "Error reading CPU usage: %v\n", err)
 		} else {
-			fmt.Printf("CPU Usage: %d\n", cpu)
+			fmt.Fprintf(stdout, "CPU Usage: %d\n", cpu)
 		}
 
-		gpu, npu, err := internal.GetGpuAndNpuUsage()
+		gpu, npu, err := monitor.GetGpuAndNpuUsage()
 		if err != nil {
-			fmt.Printf("Error reading GPU or NPU usage: %v\n", err)
+			fmt.Fprintf(stderr, "Error reading GPU or NPU usage: %v\n", err)
 		} else {
-			fmt.Printf("GPU Usage: %d\n", gpu)
-			fmt.Printf("NPU Usage: %d\n", npu)
+			fmt.Fprintf(stdout, "GPU Usage: %d\n", gpu)
+			fmt.Fprintf(stdout, "NPU Usage: %d\n", npu)
+		}
+
+		ram, err := monitor.GetRAMUsage()
+		if err != nil {
+			fmt.Fprintf(stderr, "Error reading RAM usage: %v\n", err)
+		} else {
+			fmt.Fprintf(stdout, "RAM Usage: %d\n", ram)
 		}
 
 		status, err := lightbar.GetStatus()
 		if err != nil {
-			fmt.Printf("Error reading lightbar status: %v\n", err)
+			fmt.Fprintf(stderr, "Error reading lightbar status: %v\n", err)
 		} else {
-			fmt.Printf("Lightbar Status: Brightness=%d, R=%d, G=%d, B=%d\n", status.Brightness, status.Red, status.Green, status.Blue)
+			fmt.Fprintf(stdout, "Lightbar Status: Brightness=%d, R=%d, G=%d, B=%d\n", status.Brightness, status.Red, status.Green, status.Blue)
 		}
 	}
 
 	if !*watch {
 		printAll()
-	} else {
-		fmt.Println("Starting resource monitoring (watch mode)... Press Ctrl+C to stop.")
-		ticker := time.NewTicker(1 * time.Second)
-		defer ticker.Stop()
+		return 0
+	}
 
-		for {
-			select {
-			case <-ticker.C:
-				printAll()
-				fmt.Println("---------------------------")
-			case <-ctx.Done():
-				fmt.Println("Watch mode stopping gracefully:", ctx.Err())
-				return
-			}
+	fmt.Fprintln(stdout, "Starting resource monitoring (watch mode)... Press Ctrl+C to stop.")
+	ticker := time.NewTicker(*interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			printAll()
+			fmt.Fprintln(stdout, "---------------------------")
+		case <-ctx.Done():
+			fmt.Fprintln(stdout, "Watch mode stopping gracefully.")
+			return 0
 		}
 	}
 }
