@@ -9,14 +9,17 @@ import (
 
 // Service handles the background monitoring and lightbar updates
 type Service struct {
-	lightbar       LightbarInterface
-	monitor        MonitorInterface
-	verbose        bool
-	hasLastApplied bool
-	lastBrightness uint8
-	lastRed        uint8
-	lastGreen      uint8
-	lastBlue       uint8
+	lightbar         LightbarInterface
+	monitor          MonitorInterface
+	verbose          bool
+	hasLastApplied   bool
+	lastBrightness   uint8
+	lastRed          uint8
+	lastGreen        uint8
+	lastBlue         uint8
+	lastUpdateErr    string
+	errRepeatCount   int
+	lastTelemetryErr string
 }
 
 // NewService creates a new Service instance
@@ -39,7 +42,23 @@ func (s *Service) Run(ctx context.Context) {
 		select {
 		case <-ticker.C:
 			if err := s.updateLightbar(); err != nil {
-				log.Printf("Error updating lightbar: %v", err)
+				errStr := err.Error()
+				if errStr != s.lastUpdateErr {
+					log.Printf("Error updating lightbar: %v", err)
+					s.lastUpdateErr = errStr
+					s.errRepeatCount = 1
+				} else {
+					s.errRepeatCount++
+					if s.errRepeatCount%60 == 0 {
+						log.Printf("Error updating lightbar (repeated %d times): %v", s.errRepeatCount, err)
+					}
+				}
+			} else {
+				if s.lastUpdateErr != "" {
+					log.Printf("Lightbar update recovered after %d consecutive errors", s.errRepeatCount)
+					s.lastUpdateErr = ""
+					s.errRepeatCount = 0
+				}
 			}
 		case <-ctx.Done():
 			log.Println("Service stopping gracefully:", ctx.Err())
@@ -56,7 +75,16 @@ func (s *Service) updateLightbar() error {
 
 	gpu, npu, err := s.monitor.GetGpuAndNpuUsage()
 	if err != nil {
-		return fmt.Errorf("failed to get GPU/NPU usage: %w", err)
+		errStr := err.Error()
+		if errStr != s.lastTelemetryErr {
+			log.Printf("Warning: GPU/NPU telemetry unavailable (%v); continuing with CPU/RAM metrics", err)
+			s.lastTelemetryErr = errStr
+		}
+		gpu = 0
+		npu = 0
+	} else if s.lastTelemetryErr != "" {
+		log.Println("GPU/NPU telemetry restored")
+		s.lastTelemetryErr = ""
 	}
 
 	ram, err := s.monitor.GetRAMUsage()

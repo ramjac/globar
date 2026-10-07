@@ -1,8 +1,10 @@
 package internal
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 )
 
 // MockLightbar is a mock implementation of LightbarInterface
@@ -245,5 +247,92 @@ func TestService_UpdateLightbar_ConditionalWrites(t *testing.T) {
 	}
 	if brightnessWriteCount != 1 {
 		t.Errorf("Expected brightness write to be skipped when brightness is unchanged, got %d", brightnessWriteCount)
+	}
+}
+
+func TestService_UpdateLightbar_GpuTelemetryDegradation(t *testing.T) {
+	var gotR, gotG, gotB, gotBrightness uint8
+
+	mockLightbar := &MockLightbar{
+		GetStatusFn: func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+		SetBrightnessFn: func(brightness uint8) error {
+			gotBrightness = brightness
+			return nil
+		},
+		SetRGBFn: func(r, g, b uint8) error {
+			gotR, gotG, gotB = r, g, b
+			return nil
+		},
+	}
+
+	gpuErr := fmt.Errorf("amd-smi failed")
+	mockMonitor := &MockMonitor{
+		GetCPUUsageFn: func() (uint16, error) { return 60, nil },
+		GetGpuAndNpuUsageFn: func() (uint16, uint16, error) {
+			if gpuErr != nil {
+				return 0, 0, gpuErr
+			}
+			return 50, 40, nil
+		},
+		GetRAMUsageFn: func() (uint16, error) { return 40, nil },
+	}
+
+	service := NewService(mockLightbar, mockMonitor, false)
+
+	// Update when GPU/NPU telemetry is failing
+	// CPU=60, RAM=40, GPU/NPU fallback to 0
+	// sum = 0 + 60 + 0 = 60 >= 45 (no baseline addition) -> R=0, G=60, B=0
+	// avgUsage = (60 + 0 + 0)/3 = 20 -> brightness = (40 + 20)/2 + 20 = 50
+	err := service.updateLightbar()
+	if err != nil {
+		t.Fatalf("Expected updateLightbar to succeed despite telemetry failure, got: %v", err)
+	}
+	if gotG != 60 || gotR != 0 || gotB != 0 {
+		t.Errorf("Expected RGB (0, 60, 0) during telemetry degradation, got (%d, %d, %d)", gotR, gotG, gotB)
+	}
+	if gotBrightness != 50 {
+		t.Errorf("Expected brightness 50 during telemetry degradation, got %d", gotBrightness)
+	}
+
+	// Now recover telemetry
+	gpuErr = nil
+	err = service.updateLightbar()
+	if err != nil {
+		t.Fatalf("Expected updateLightbar to succeed after recovery, got: %v", err)
+	}
+	if gotR != 50 || gotG != 60 || gotB != 40 {
+		t.Errorf("Expected restored RGB (50, 60, 40), got (%d, %d, %d)", gotR, gotG, gotB)
+	}
+}
+
+func TestService_Run_ContextCancel(t *testing.T) {
+	mockLightbar := &MockLightbar{
+		GetStatusFn:     func() (LightbarStatus, error) { return LightbarStatus{}, nil },
+		SetBrightnessFn: func(brightness uint8) error { return nil },
+		SetRGBFn:        func(r, g, b uint8) error { return nil },
+	}
+	mockMonitor := &MockMonitor{
+		GetCPUUsageFn:       func() (uint16, error) { return 10, nil },
+		GetGpuAndNpuUsageFn: func() (uint16, uint16, error) { return 10, 10, nil },
+		GetRAMUsageFn:       func() (uint16, error) { return 10, nil },
+	}
+
+	service := NewService(mockLightbar, mockMonitor, false)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancel immediately to test graceful termination
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		service.Run(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Succeeded in stopping gracefully
+	case <-time.After(1 * time.Second):
+		t.Fatal("Service.Run did not terminate upon context cancellation")
 	}
 }

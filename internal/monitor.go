@@ -204,12 +204,28 @@ func GetCPUUsage() (uint16, error) {
 	return calculateCPUDelta(s1, s2), nil
 }
 
+// findAmdSmiPath determines the binary path for amd-smi using AMD_SMI_PATH, default path, or $PATH lookup
+func findAmdSmiPath() string {
+	if envPath := os.Getenv("AMD_SMI_PATH"); envPath != "" {
+		return envPath
+	}
+	const defaultPath = "/opt/rocm/bin/amd-smi"
+	if _, err := os.Stat(defaultPath); err == nil {
+		return defaultPath
+	}
+	if path, err := exec.LookPath("amd-smi"); err == nil {
+		return path
+	}
+	return defaultPath
+}
+
 // getAmdSmiData reads and parses the amd-smi output
 var getAmdSmiData = func(ctx context.Context) (*AmdSmiOutput, error) {
-	cmd := exec.CommandContext(ctx, "/opt/rocm/bin/amd-smi", "metric", "-u", "--json")
+	binPath := findAmdSmiPath()
+	cmd := exec.CommandContext(ctx, binPath, "metric", "-u", "--json")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("error running amd-smi: %w", err)
+		return nil, fmt.Errorf("error running amd-smi (%s): %w", binPath, err)
 	}
 
 	var smiOutput AmdSmiOutput

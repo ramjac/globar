@@ -204,3 +204,18 @@ func TestMonitor_Methods(t *testing.T) {
 		}
 	}
 }
+
+func TestFindAmdSmiPath(t *testing.T) {
+	// Test AMD_SMI_PATH environment variable override
+	t.Setenv("AMD_SMI_PATH", "/custom/path/to/amd-smi")
+	if path := findAmdSmiPath(); path != "/custom/path/to/amd-smi" {
+		t.Errorf("Expected /custom/path/to/amd-smi, got %s", path)
+	}
+
+	// Test default / fallback when AMD_SMI_PATH is empty
+	t.Setenv("AMD_SMI_PATH", "")
+	path := findAmdSmiPath()
+	if path == "" {
+		t.Error("Expected non-empty path from findAmdSmiPath()")
+	}
+}
