@@ -18,9 +18,10 @@ Version 1.0.0 was developed heavily with the help of AI running on the Halo dev 
 ## Prerequisites & Permissions
 
 1. **Hardware & OS**: Designed for the AMD Ryzen Halo Linux Developer Box running linux.
-2. **Permissions**: Controlling the lightbar requires the user running the tool to belong to the `halo-lp` group:
+2. **Permissions**: Reading `amd-smi` and controlling the lightbar requires the user running the tool to belong to the `render` and `halo-lp` groups:
    ```bash
    sudo usermod -aG halo-lp $USER
+   sudo usermod -aG render $USER
    ```
    *Log out and log back in (or reboot) for group membership to take effect.*
 3. **NPU Telemetry**: Ensure `amd-smi` is available at `/opt/rocm/bin/amd-smi` for NPU monitoring.
